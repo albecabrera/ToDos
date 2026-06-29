@@ -37,6 +37,12 @@
 
     <!-- ── Footer ── -->
     <footer class="app-footer">
+        <!-- Date picker row (hidden by default) -->
+        <div class="date-row hidden" id="date-row">
+            <input type="date" id="due-date-input" class="date-input" aria-label="Fecha límite">
+            <button class="clear-date-btn" id="clear-date-btn" aria-label="Quitar fecha">✕</button>
+        </div>
+
         <div class="add-row">
             <input
                 type="text"
@@ -48,16 +54,27 @@
                 spellcheck="false"
                 aria-label="Nueva tarea"
             >
+            <!-- Calendar button -->
+            <button class="icon-btn calendar-btn" id="calendar-btn" title="Agregar fecha límite">
+                <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                    <rect x="1" y="2" width="11" height="10" rx="2" stroke="currentColor" stroke-width="1.2"/>
+                    <path d="M4 1v2M9 1v2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                    <path d="M1 5h11" stroke="currentColor" stroke-width="1.2"/>
+                </svg>
+            </button>
+            <!-- Priority picker -->
             <div class="priority-picker" id="priority-picker" title="Prioridad" aria-label="Prioridad">
                 <span class="priority-dot p2" id="prio-dot"></span>
             </div>
+            <!-- Add button -->
             <button class="add-btn" id="add-btn" aria-label="Agregar">
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                    <path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2"
-                          stroke-linecap="round"/>
+                    <path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
                 </svg>
             </button>
         </div>
+
+        <!-- Priority context menu -->
         <div class="priority-menu hidden" id="priority-menu">
             <button class="prio-option" data-prio="1"><span class="priority-dot p1"></span>Baja</button>
             <button class="prio-option" data-prio="2"><span class="priority-dot p2"></span>Media</button>

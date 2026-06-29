@@ -6,6 +6,9 @@ class PopoverController: NSViewController, WKNavigationDelegate, WKUIDelegate {
     private let port: Int
     private var isFirstLoad = true
 
+    /// Called whenever JS reports the pending task count (for menubar badge)
+    var onBadgeUpdate: ((Int) -> Void)?
+
     init(port: Int) {
         self.port = port
         super.init(nibName: nil, bundle: nil)
@@ -16,30 +19,23 @@ class PopoverController: NSViewController, WKNavigationDelegate, WKUIDelegate {
     // MARK: - View
 
     override func loadView() {
-        // Native macOS blur layer — gives the authentic frosted glass look
-        let effectView = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 360, height: 500))
-        // .underWindowBackground = blur más profundo y oscuro en dark mode
-        effectView.material      = .underWindowBackground
-        effectView.blendingMode  = .behindWindow
-        effectView.state         = .active
-        effectView.wantsLayer    = true
-        effectView.layer?.cornerRadius = 12
-        effectView.layer?.masksToBounds = true
+        let effectView = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 360, height: 520))
+        effectView.material         = .underWindowBackground
+        effectView.blendingMode     = .behindWindow
+        effectView.state            = .active
+        effectView.wantsLayer       = true
+        effectView.layer?.cornerRadius      = 12
+        effectView.layer?.masksToBounds     = true
 
         let config = WKWebViewConfiguration()
-
-        // Allow JS bridge for future use
         let contentController = WKUserContentController()
         contentController.add(WeakScriptHandler(delegate: self), name: "bridge")
         config.userContentController = contentController
 
         webView = WKWebView(frame: effectView.bounds, configuration: config)
-        webView.autoresizingMask    = [.width, .height]
-        webView.navigationDelegate  = self
-        webView.uiDelegate          = self
-
-        // Transparent so NSVisualEffectView blur shows through
-        // (NSView.isOpaque is read-only; this is the correct macOS API)
+        webView.autoresizingMask   = [.width, .height]
+        webView.navigationDelegate = self
+        webView.uiDelegate         = self
         webView.setValue(false, forKey: "drawsBackground")
         webView.wantsLayer = true
         webView.layer?.backgroundColor = CGColor.clear
@@ -53,7 +49,6 @@ class PopoverController: NSViewController, WKNavigationDelegate, WKUIDelegate {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        // Small delay: give PHP server time to bind
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
             self?.loadApp()
         }
@@ -61,7 +56,6 @@ class PopoverController: NSViewController, WKNavigationDelegate, WKUIDelegate {
 
     override func viewWillAppear() {
         super.viewWillAppear()
-        // Reload on every open so tasks are always fresh
         if !isFirstLoad { loadApp() }
         isFirstLoad = false
     }
@@ -77,15 +71,15 @@ class PopoverController: NSViewController, WKNavigationDelegate, WKUIDelegate {
     // MARK: - WKNavigationDelegate
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        // Inject system color scheme for CSS media query sync
         let scheme = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
-        let isDark = scheme == .darkAqua ? "true" : "false"
-        let js = "document.documentElement.dataset.scheme = '\(isDark == "true" ? "dark" : "light")';"
-        webView.evaluateJavaScript(js, completionHandler: nil)
+        let mode   = scheme == .darkAqua ? "dark" : "light"
+        webView.evaluateJavaScript(
+            "document.documentElement.dataset.scheme = '\(mode)';",
+            completionHandler: nil
+        )
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        // Retry once if PHP wasn't ready
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             self?.loadApp()
         }
@@ -97,12 +91,19 @@ class PopoverController: NSViewController, WKNavigationDelegate, WKUIDelegate {
 extension PopoverController: WKScriptMessageHandler {
     func userContentController(_ ucc: WKUserContentController,
                                didReceive message: WKScriptMessage) {
-        guard message.name == "bridge" else { return }
-        // Reserved for future native ↔ JS communication
+        guard message.name == "bridge",
+              let body = message.body as? [String: Any],
+              let type = body["type"] as? String else { return }
+
+        if type == "badge", let count = body["count"] as? Int {
+            DispatchQueue.main.async { [weak self] in
+                self?.onBadgeUpdate?(count)
+            }
+        }
     }
 }
 
-// Avoids retain cycle: WKUserContentController holds a strong ref to handlers
+// Avoids retain cycle with WKUserContentController
 private class WeakScriptHandler: NSObject, WKScriptMessageHandler {
     weak var delegate: PopoverController?
     init(delegate: PopoverController) { self.delegate = delegate }

@@ -65,7 +65,7 @@
 /* ── Base ───────────────────────────────────────────────── */
 html, body {
     width: 360px;
-    height: 500px;
+    height: 520px;
     overflow: hidden;
     background: transparent;
     font-family: var(--font);
@@ -556,4 +556,148 @@ html, body {
     text-transform: uppercase;
     color: var(--text-35);
     padding: 6px 2px 2px;
+}
+
+/* ── Inline Edit ──────────────────────────────────────────── */
+.task-title[contenteditable="true"],
+.task-title.editing {
+    outline: none;
+    background: rgba(100, 180, 255, 0.10);
+    border-radius: 4px;
+    padding: 1px 4px;
+    margin: -1px -4px;
+    white-space: nowrap;
+    overflow: visible;
+    cursor: text;
+    box-shadow: 0 0 0 1.5px rgba(100, 180, 255, 0.30);
+}
+
+/* ── Drag & Drop ─────────────────────────────────────────── */
+.task-item[draggable="true"] {
+    cursor: grab;
+}
+
+.task-item.dragging {
+    opacity: 0.4;
+    cursor: grabbing;
+    transform: scale(0.97);
+}
+
+.task-item.drag-over {
+    border-color: rgba(100, 180, 255, 0.45);
+    background: rgba(100, 180, 255, 0.06);
+    box-shadow:
+        inset 0 0.5px 0 rgba(100, 180, 255, 0.20),
+        0 0 0 1px rgba(100, 180, 255, 0.15);
+    transform: translateY(-1px);
+}
+
+/* ── Due Date Badge ──────────────────────────────────────── */
+.due-badge {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 500;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.07);
+    border: 0.5px solid rgba(255, 255, 255, 0.10);
+    color: var(--text-60);
+    letter-spacing: -0.1px;
+    white-space: nowrap;
+}
+
+.due-badge.overdue {
+    background: rgba(255, 69, 58, 0.12);
+    border-color: rgba(255, 69, 58, 0.22);
+    color: #FF6B63;
+}
+
+.task-item.done .due-badge {
+    opacity: 0.4;
+}
+
+/* ── Icon Button (calendar) ──────────────────────────────── */
+.icon-btn {
+    width: 30px;
+    height: 30px;
+    border-radius: var(--radius-sm);
+    border: 0.5px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-60);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    cursor: pointer;
+    transition: all var(--transition);
+    padding: 0;
+}
+
+.icon-btn:hover {
+    background: rgba(255, 255, 255, 0.09);
+    color: var(--text-100);
+}
+
+.calendar-btn.has-date {
+    color: var(--accent);
+    border-color: rgba(100, 180, 255, 0.30);
+    background: rgba(100, 180, 255, 0.08);
+}
+
+/* ── Date Row ────────────────────────────────────────────── */
+.date-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-bottom: 8px;
+    animation: slideDown 0.18s ease both;
+}
+
+.date-row.hidden {
+    display: none;
+}
+
+@keyframes slideDown {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.date-input {
+    flex: 1;
+    padding: 5px 10px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 0.5px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-sm);
+    color: var(--text-100);
+    font-family: var(--font);
+    font-size: 12px;
+    outline: none;
+    transition: all var(--transition);
+    color-scheme: dark;
+}
+
+.date-input:focus {
+    border-color: rgba(100, 180, 255, 0.35);
+    box-shadow: 0 0 0 2px rgba(100, 180, 255, 0.10);
+}
+
+.clear-date-btn {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: var(--text-35);
+    font-size: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition);
+    flex-shrink: 0;
+}
+
+.clear-date-btn:hover {
+    background: rgba(255, 69, 58, 0.12);
+    color: var(--p3);
 }

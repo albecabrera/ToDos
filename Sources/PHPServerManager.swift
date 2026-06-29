@@ -3,46 +3,61 @@ import Foundation
 class PHPServerManager {
     let port: Int
     private var process: Process?
+    private var lastWwwPath    = ""
+    private var lastRouterPath = ""
+    private var restartScheduled = false
 
     init(port: Int = 8742) {
         self.port = port
     }
 
     func start(wwwPath: String, routerPath: String) {
+        lastWwwPath    = wwwPath
+        lastRouterPath = routerPath
+
         guard let phpPath = findPHP() else {
-            NSLog("[MenuBarTasks] PHP not found — install via brew install php")
+            NSLog("[MenuBarTasks] PHP not found — brew install php")
             return
         }
 
         stop()
 
-        process = Process()
-        process?.executableURL = URL(fileURLWithPath: phpPath)
-        // -S host:port -t docroot router.php
-        process?.arguments = ["-S", "127.0.0.1:\(port)", "-t", wwwPath, routerPath]
-        process?.standardOutput = FileHandle.nullDevice
-        process?.standardError  = FileHandle.nullDevice
-        process?.currentDirectoryURL = URL(fileURLWithPath: wwwPath)
+        let p = Process()
+        p.executableURL     = URL(fileURLWithPath: phpPath)
+        p.arguments         = ["-S", "127.0.0.1:\(port)", "-t", wwwPath, routerPath]
+        p.standardOutput    = FileHandle.nullDevice
+        p.standardError     = FileHandle.nullDevice
+        p.currentDirectoryURL = URL(fileURLWithPath: wwwPath)
+
+        // Watchdog — restart automatically if PHP crashes
+        p.terminationHandler = { [weak self] _ in
+            guard let self, !self.restartScheduled else { return }
+            self.restartScheduled = true
+            NSLog("[MenuBarTasks] PHP died — restarting in 2s…")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                self.restartScheduled = false
+                self.start(wwwPath: self.lastWwwPath, routerPath: self.lastRouterPath)
+            }
+        }
 
         do {
-            try process?.run()
-            NSLog("[MenuBarTasks] PHP server started on 127.0.0.1:\(port)")
+            try p.run()
+            process = p
+            NSLog("[MenuBarTasks] PHP server on 127.0.0.1:\(port)")
         } catch {
-            NSLog("[MenuBarTasks] Failed to start PHP: \(error)")
+            NSLog("[MenuBarTasks] PHP start failed: \(error)")
         }
     }
 
     func stop() {
+        restartScheduled = true   // prevent watchdog firing during intentional stop
         process?.terminate()
         process = nil
+        restartScheduled = false
     }
 
     private func findPHP() -> String? {
-        let candidates = [
-            "/opt/homebrew/bin/php",   // arm64 Homebrew
-            "/usr/local/bin/php",       // x86 Homebrew
-            "/usr/bin/php"              // system (may be stub)
-        ]
-        return candidates.first { FileManager.default.fileExists(atPath: $0) }
+        ["/opt/homebrew/bin/php", "/usr/local/bin/php", "/usr/bin/php"]
+            .first { FileManager.default.fileExists(atPath: $0) }
     }
 }
