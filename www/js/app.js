@@ -1,493 +1,709 @@
-/**
- * MenuBar Tasks — Frontend v1.1
- * Features: inline edit, drag & drop, due dates, badge, login item
- */
+/* MenuBar Tasks — Frontend v2.0 */
 
-const API = `${location.origin}/api/tasks`;
-let tasks  = [];
-let filter = 'all';
+const API  = `${location.origin}/api/tasks`;
+let tasks           = [];
+let filter          = 'all';
+let searchQuery     = '';
 let selectedPriority = 2;
 let selectedDueDate  = '';
-let dragSrcEl = null;
+let expandedIds     = new Set();
+let undoTimer       = null;
+let undoPending     = null;   // { task, onConfirm }
+let dragSrcEl       = null;
 
-// ── API ──────────────────────────────────────────────────
+// ── Bridge helpers ────────────────────────────────────────
+
+function bridge(msg) {
+    if (window.webkit?.messageHandlers?.bridge)
+        window.webkit.messageHandlers.bridge.postMessage(msg);
+}
+const haptic = () => bridge({ type: 'haptic' });
+const sound  = (name = 'Pop') => bridge({ type: 'sound', name });
+
+// ── API ───────────────────────────────────────────────────
 
 async function apiFetch(path, opts = {}) {
-    const res = await fetch(API + path, {
+    const r = await fetch(API + path, {
         headers: { 'Content-Type': 'application/json' },
         ...opts,
     });
-    if (res.status === 204) return null;
-    return res.json();
+    if (r.status === 204) return null;
+    return r.json();
 }
 
-async function loadTasks() {
-    try {
-        tasks = await apiFetch('');
-        render();
-    } catch (e) {
-        console.error('Load failed:', e);
-    }
+// ── Natural language date parser ──────────────────────────
+
+const WEEKDAYS = {
+    lun:1, lunes:1, monday:1, mon:1,
+    mar:2, martes:2, tuesday:2, tue:2,
+    mié:3, miercoles:3, miércoles:3, wednesday:3, wed:3,
+    jue:4, jueves:4, thursday:4, thu:4,
+    vie:5, viernes:5, friday:5, fri:5,
+    sáb:6, sabado:6, sábado:6, saturday:6, sat:6,
+    dom:0, domingo:0, sunday:0, sun:0,
+};
+
+function addDays(n) {
+    const d = new Date();
+    d.setDate(d.getDate() + n);
+    return d.toISOString().slice(0, 10);
 }
 
-// ── Render ───────────────────────────────────────────────
+function nextWeekday(word) {
+    const w = word.toLowerCase().replace(/á/g,'a').replace(/é/g,'e').replace(/ó/g,'o');
+    const key = Object.keys(WEEKDAYS).find(k => w.startsWith(k));
+    if (key === undefined) return null;
+    const target = WEEKDAYS[key];
+    const now = new Date();
+    const diff = ((target - now.getDay()) + 7) % 7 || 7;
+    return addDays(diff);
+}
 
-function filtered() {
-    switch (filter) {
-        case 'pending': return tasks.filter(t => !parseInt(t.done));
-        case 'done':    return tasks.filter(t =>  parseInt(t.done));
-        default:        return tasks;
+const NL_PATTERNS = [
+    [/\b(hoy|today)\b/i,                     () => addDays(0)],
+    [/\b(mañana|manana|tomorrow)\b/i,         () => addDays(1)],
+    [/\b(pasado mañana|day after tomorrow)\b/i, () => addDays(2)],
+    [/\ben\s+(\d+)\s+d[ií]as?\b/i,            m  => addDays(+m[1])],
+    [/\b(\d+)\s+d[ií]as?\b/i,                 m  => addDays(+m[1])],
+    [/\bpr[oó]xim[ao]\s+(\w+)\b/i,            m  => nextWeekday(m[1])],
+    [/\b(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i, m => nextWeekday(m[1])],
+];
+
+function extractNL(title) {
+    for (const [re, fn] of NL_PATTERNS) {
+        const m = title.match(re);
+        if (m) {
+            const date = fn(m);
+            if (date) return { date, clean: title.replace(re, '').replace(/\s+/g, ' ').trim() };
+        }
     }
+    return { date: null, clean: title };
+}
+
+// ── Date helpers ──────────────────────────────────────────
+
+function isOverdue(dateStr) {
+    if (!dateStr) return false;
+    return dateStr < new Date().toISOString().slice(0, 10);
+}
+
+function formatDueDate(dateStr) {
+    if (!dateStr) return '';
+    const [y, mo, d] = dateStr.split('-').map(Number);
+    const today = new Date();
+    const due   = new Date(y, mo - 1, d);
+    const diff  = Math.round((due - new Date(today.getFullYear(), today.getMonth(), today.getDate())) / 86400000);
+    if (diff === 0)  return 'Hoy';
+    if (diff === 1)  return 'Mañana';
+    if (diff === -1) return 'Ayer';
+    if (diff < 0)    return `Hace ${-diff}d`;
+    if (diff < 7)    return `En ${diff}d`;
+    return due.toLocaleDateString('es-DE', { day: 'numeric', month: 'short' });
+}
+
+// ── Render ────────────────────────────────────────────────
+
+function getVisible() {
+    let list = tasks;
+    if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        list = list.filter(t => t.title.toLowerCase().includes(q) ||
+                                (t.notes || '').toLowerCase().includes(q));
+    } else {
+        if (filter === 'pending') list = list.filter(t => !t.done);
+        if (filter === 'done')    list = list.filter(t =>  t.done);
+    }
+    return list;
 }
 
 function render() {
-    const list  = document.getElementById('task-list');
-    const empty = document.getElementById('empty-state');
-    const badge = document.getElementById('badge');
+    const visible = getVisible();
+    const list    = document.getElementById('task-list');
+    const empty   = document.getElementById('empty-state');
+    const emptyMsg = document.getElementById('empty-msg');
+    const badge   = document.getElementById('badge');
 
-    const items   = filtered();
-    const pending = tasks.filter(t => !parseInt(t.done)).length;
+    list.innerHTML = '';
 
-    badge.textContent = pending;
-    badge.style.opacity = pending > 0 ? '1' : '0.45';
+    const pending   = tasks.filter(t => !t.done);
+    const overdueN  = pending.filter(t => isOverdue(t.due_date)).length;
+    const badgeN    = pending.length;
 
-    // Send count to Swift for menubar badge
-    sendBadge(pending);
+    badge.textContent = badgeN;
+    badge.classList.toggle('overdue', overdueN > 0);
+    bridge({ type: 'badge', count: badgeN, hasOverdue: overdueN > 0 });
 
-    if (items.length === 0) {
-        list.innerHTML = '';
+    // Clean btn visibility
+    const doneCount = tasks.filter(t => t.done).length;
+    document.getElementById('footer-actions').style.display = doneCount > 0 ? '' : 'none';
+
+    if (visible.length === 0) {
+        emptyMsg.textContent = searchQuery ? 'Sin resultados' : filter === 'done' ? 'Nada completado aún' : 'Todo al día';
         empty.classList.remove('hidden');
         return;
     }
     empty.classList.add('hidden');
 
-    const pendingItems = items.filter(t => !parseInt(t.done));
-    const doneItems    = items.filter(t =>  parseInt(t.done));
-    const allOrdered   = [...pendingItems, ...doneItems];
-
-    const existing = new Map([...list.querySelectorAll('[data-id]')].map(el => [el.dataset.id, el]));
-    const seen     = new Set();
-
-    allOrdered.forEach((task, idx) => {
-        const key = String(task.id);
-        seen.add(key);
-        if (existing.has(key)) {
-            syncEl(existing.get(key), task);
-        } else {
-            const el = buildEl(task);
-            el.style.animationDelay = `${idx * 25}ms`;
-            list.appendChild(el);
-        }
+    visible.forEach(task => {
+        const el = buildTaskEl(task);
+        list.appendChild(el);
     });
-
-    existing.forEach((el, key) => {
-        if (!seen.has(key)) animateOut(el);
-    });
-
-    insertDivider(list, pendingItems.length, doneItems.length);
 }
 
-function insertDivider(list, pendingCount, doneCount) {
-    list.querySelectorAll('.section-divider').forEach(d => d.remove());
-    if (filter !== 'all' || pendingCount === 0 || doneCount === 0) return;
-    const firstDone = list.querySelector('.task-item.done');
-    if (!firstDone) return;
-    const div = document.createElement('div');
-    div.className   = 'section-divider';
-    div.textContent = 'Completadas';
-    list.insertBefore(div, firstDone);
-}
+function buildTaskEl(task) {
+    const overdue   = isOverdue(task.due_date);
+    const subtasks  = task.subtasks || [];
+    const doneCount = subtasks.filter(s => s.done).length;
+    const isExpanded = expandedIds.has(task.id);
 
-// ── Task DOM ─────────────────────────────────────────────
+    const el = document.createElement('div');
+    el.className = `task-item${task.done ? ' done' : ''}`;
+    el.dataset.id = task.id;
+    el.draggable  = !task.done;
 
-function buildEl(task) {
-    const div = document.createElement('div');
-    div.className  = `task-item${parseInt(task.done) ? ' done' : ''} entering`;
-    div.dataset.id = task.id;
-    div.setAttribute('role', 'listitem');
-    div.setAttribute('draggable', 'true');
-    div.innerHTML  = elHTML(task);
-    bindEl(div, task);
-    bindDrag(div);
-    return div;
-}
+    // ── Main row ──
+    const main = document.createElement('div');
+    main.className = 'task-main';
 
-function syncEl(el, task) {
-    const wasDone = el.classList.contains('done');
-    const isDone  = !!parseInt(task.done);
-    el.classList.toggle('done', isDone);
-    el.querySelector('.task-title').textContent = task.title;
-    el.querySelector('.priority-dot').className = `priority-dot p${task.priority}`;
+    // Checkbox
+    const chk = document.createElement('div');
+    chk.className = 'task-check';
+    chk.innerHTML = `<div class="check-inner">✓</div>`;
+    chk.addEventListener('click', () => toggleDone(task.id));
 
-    // Sync due badge
-    const existingDue = el.querySelector('.due-badge');
-    if (existingDue) existingDue.remove();
+    // Priority bar
+    const pbar = document.createElement('div');
+    pbar.className = `priority-bar p${task.priority}`;
+
+    // Body
+    const body = document.createElement('div');
+    body.className = 'task-body';
+
+    const titleEl = document.createElement('div');
+    titleEl.className = 'task-title';
+    titleEl.textContent = task.title;
+    titleEl.addEventListener('dblclick', () => startEdit(task.id, titleEl));
+
+    const meta = document.createElement('div');
+    meta.className = 'task-meta';
+
     if (task.due_date) {
-        const titleEl = el.querySelector('.task-title');
-        titleEl.insertAdjacentHTML('afterend', dueBadgeHTML(task.due_date));
+        const badge = document.createElement('span');
+        badge.className = `due-badge${overdue ? ' overdue' : ''}`;
+        badge.textContent = formatDueDate(task.due_date);
+        meta.appendChild(badge);
     }
 
-    if (wasDone !== isDone) {
-        el.classList.add('entering');
-        el.addEventListener('animationend', () => el.classList.remove('entering'), { once: true });
+    if (subtasks.length > 0) {
+        const pill = document.createElement('span');
+        pill.className = 'subtask-pill';
+        pill.textContent = `${doneCount}/${subtasks.length}`;
+        meta.appendChild(pill);
+    }
+
+    body.appendChild(titleEl);
+    if (meta.children.length) body.appendChild(meta);
+
+    // Actions
+    const actions = document.createElement('div');
+    actions.className = 'task-actions';
+
+    const expandBtn = document.createElement('button');
+    expandBtn.className = `task-action-btn${isExpanded ? ' expanded' : ''}`;
+    expandBtn.title = 'Notas y subtareas';
+    expandBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+        <path d="M2 4h8M2 6h5M2 8h6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+    </svg>`;
+    expandBtn.addEventListener('click', () => {
+        if (expandedIds.has(task.id)) expandedIds.delete(task.id);
+        else expandedIds.add(task.id);
+        render();
+    });
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'task-action-btn delete';
+    delBtn.title = 'Eliminar';
+    delBtn.innerHTML = `<svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+        <path d="M1 1l9 9M10 1L1 10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+    </svg>`;
+    delBtn.addEventListener('click', () => deleteTask(task));
+
+    actions.appendChild(expandBtn);
+    actions.appendChild(delBtn);
+
+    main.appendChild(chk);
+    main.appendChild(pbar);
+    main.appendChild(body);
+    main.appendChild(actions);
+    el.appendChild(main);
+
+    // ── Expand area ──
+    if (isExpanded) {
+        const expand = buildExpandEl(task);
+        el.appendChild(expand);
+    }
+
+    // ── Drag ──
+    bindDrag(el, task);
+
+    return el;
+}
+
+function buildExpandEl(task) {
+    const expand = document.createElement('div');
+    expand.className = 'task-expand';
+
+    // Notes
+    const notes = document.createElement('textarea');
+    notes.className = 'notes-area';
+    notes.placeholder = 'Agregar notas…';
+    notes.value = task.notes || '';
+    notes.rows = 2;
+
+    let notesTimer;
+    notes.addEventListener('input', () => {
+        clearTimeout(notesTimer);
+        notesTimer = setTimeout(() => saveNotes(task.id, notes.value), 600);
+    });
+
+    // Subtasks
+    const subtaskSection = document.createElement('div');
+    subtaskSection.className = 'subtask-list';
+
+    (task.subtasks || []).forEach((sub, idx) => {
+        subtaskSection.appendChild(buildSubtaskEl(task, sub, idx));
+    });
+
+    const addSubBtn = document.createElement('button');
+    addSubBtn.className = 'add-subtask-btn';
+    addSubBtn.textContent = '+ Agregar subtarea';
+    addSubBtn.addEventListener('click', () => addSubtask(task.id));
+
+    expand.appendChild(notes);
+    expand.appendChild(subtaskSection);
+    expand.appendChild(addSubBtn);
+
+    return expand;
+}
+
+function buildSubtaskEl(task, sub, idx) {
+    const row = document.createElement('div');
+    row.className = 'subtask-item';
+
+    const chk = document.createElement('div');
+    chk.className = `subtask-check${sub.done ? ' checked' : ''}`;
+    chk.textContent = sub.done ? '✓' : '';
+    chk.addEventListener('click', () => toggleSubtask(task.id, idx));
+
+    const title = document.createElement('span');
+    title.className = `subtask-title${sub.done ? ' done-text' : ''}`;
+    title.contentEditable = 'true';
+    title.textContent = sub.title;
+    title.addEventListener('blur', () => renameSubtask(task.id, idx, title.textContent));
+    title.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); title.blur(); }
+    });
+
+    const del = document.createElement('button');
+    del.className = 'subtask-del';
+    del.textContent = '✕';
+    del.addEventListener('click', () => deleteSubtask(task.id, idx));
+
+    row.appendChild(chk);
+    row.appendChild(title);
+    row.appendChild(del);
+    return row;
+}
+
+// ── Task actions ──────────────────────────────────────────
+
+async function toggleDone(id) {
+    haptic();
+    const task = tasks.find(t => t.id === id);
+    if (!task) return;
+
+    const newDone = !task.done;
+    task.done = newDone;
+    render();
+
+    await apiFetch(`/${id}`, { method: 'PUT', body: JSON.stringify({ done: newDone }) });
+
+    if (newDone) {
+        sound('Pop');
+        // Update stats after completing
+        loadStats();
     }
 }
 
-function elHTML(task) {
-    return `
-        <div class="priority-dot p${task.priority}"></div>
-        <span class="task-title">${esc(task.title)}</span>
-        ${task.due_date ? dueBadgeHTML(task.due_date) : ''}
-        <div class="task-check" data-action="toggle"
-             role="checkbox" aria-checked="${parseInt(task.done) ? 'true' : 'false'}">
-            <svg class="check-icon" width="9" height="7" viewBox="0 0 9 7" fill="none">
-                <path d="M1 3.5l2.5 2.5L8 1" stroke="white" stroke-width="1.6"
-                      stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-        </div>
-        <button class="delete-btn" data-action="delete" aria-label="Eliminar">
-            <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
-                <path d="M1 1l6 6M7 1L1 7" stroke="currentColor"
-                      stroke-width="1.5" stroke-linecap="round"/>
-            </svg>
-        </button>
-    `;
+function deleteTask(task) {
+    // Optimistic remove + undo toast
+    tasks = tasks.filter(t => t.id !== task.id);
+    expandedIds.delete(task.id);
+    render();
+
+    if (undoTimer) {
+        clearTimeout(undoTimer);
+        if (undoPending) undoPending.onConfirm();
+    }
+
+    showUndoToast(task);
 }
 
-function bindEl(el, task) {
-    el.addEventListener('click', e => {
-        const action = e.target.closest('[data-action]')?.dataset.action;
-        if (action === 'toggle') toggleTask(task.id, el);
-        if (action === 'delete') deleteTask(task.id, el);
-    });
-    // Double-click title → inline edit
-    el.addEventListener('dblclick', e => {
-        if (e.target.classList.contains('task-title')) {
-            startEdit(task.id, e.target);
-        }
-    });
+function showUndoToast(task) {
+    const toast   = document.getElementById('undo-toast');
+    const undoBtn = document.getElementById('undo-btn');
+
+    toast.classList.remove('hidden');
+
+    undoPending = {
+        task,
+        onConfirm: () => apiFetch(`/${task.id}`, { method: 'DELETE' }),
+    };
+
+    const cleanup = () => {
+        toast.classList.add('hidden');
+        undoPending = null;
+        undoTimer   = null;
+    };
+
+    undoBtn.onclick = () => {
+        clearTimeout(undoTimer);
+        // Restore
+        tasks = [...tasks, task].sort((a, b) => a.position - b.position || a.id - b.id);
+        render();
+        cleanup();
+    };
+
+    undoTimer = setTimeout(() => {
+        if (undoPending) undoPending.onConfirm();
+        cleanup();
+    }, 5000);
 }
 
-function animateOut(el) {
-    el.classList.add('leaving');
-    el.addEventListener('animationend', () => el.remove(), { once: true });
-}
-
-// ── Inline Edit ──────────────────────────────────────────
+// ── Inline title edit ─────────────────────────────────────
 
 function startEdit(id, el) {
-    if (el.contentEditable === 'true') return;
-    const original = el.textContent;
-
+    const task = tasks.find(t => t.id === id);
+    if (!task) return;
     el.contentEditable = 'true';
-    el.classList.add('editing');
     el.focus();
-
-    // Select all
     const range = document.createRange();
     range.selectNodeContents(el);
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
+    getSelection().removeAllRanges();
+    getSelection().addRange(range);
 
-    let saved = false;
-
-    const save = async (commit) => {
-        if (saved) return;
-        saved = true;
+    const save = async () => {
         el.contentEditable = 'false';
-        el.classList.remove('editing');
-
-        const newTitle = el.textContent.trim();
-        if (!commit || !newTitle || newTitle === original) {
-            el.textContent = original;
-            return;
-        }
-
-        const task = tasks.find(t => t.id == id);
-        if (task) task.title = newTitle;
-
-        try {
-            await apiFetch(`/${id}`, {
-                method: 'PUT',
-                body: JSON.stringify({ title: newTitle }),
-            });
-        } catch {
-            el.textContent = original;
-            if (task) task.title = original;
+        const title = el.textContent.trim();
+        if (title && title !== task.title) {
+            task.title = title;
+            await apiFetch(`/${id}`, { method: 'PUT', body: JSON.stringify({ title }) });
+        } else {
+            el.textContent = task.title;
         }
     };
 
-    el.addEventListener('blur',    ()  => save(true),  { once: true });
-    el.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter')  { e.preventDefault(); save(true); }
-        if (e.key === 'Escape') { el.textContent = original; save(false); }
-    });
+    el.addEventListener('blur',    save, { once: true });
+    el.addEventListener('keydown', e => {
+        if (e.key === 'Enter')  { e.preventDefault(); el.blur(); }
+        if (e.key === 'Escape') { el.textContent = task.title; el.blur(); }
+    }, { once: true });
 }
 
-// ── Drag & Drop ──────────────────────────────────────────
+// ── Notes ─────────────────────────────────────────────────
 
-function bindDrag(el) {
+async function saveNotes(id, notes) {
+    const task = tasks.find(t => t.id === id);
+    if (!task) return;
+    task.notes = notes;
+    await apiFetch(`/${id}`, { method: 'PUT', body: JSON.stringify({ notes }) });
+}
+
+// ── Subtasks ──────────────────────────────────────────────
+
+async function addSubtask(taskId) {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    task.subtasks = [...(task.subtasks || []), { title: 'Nueva subtarea', done: false }];
+    await apiFetch(`/${taskId}`, { method: 'PUT', body: JSON.stringify({ subtasks: task.subtasks }) });
+    render();
+}
+
+async function toggleSubtask(taskId, idx) {
+    haptic();
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    task.subtasks[idx].done = !task.subtasks[idx].done;
+    if (task.subtasks[idx].done) sound('Pop');
+    await apiFetch(`/${taskId}`, { method: 'PUT', body: JSON.stringify({ subtasks: task.subtasks }) });
+    render();
+}
+
+async function renameSubtask(taskId, idx, title) {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task || !title.trim()) return;
+    task.subtasks[idx].title = title.trim();
+    await apiFetch(`/${taskId}`, { method: 'PUT', body: JSON.stringify({ subtasks: task.subtasks }) });
+}
+
+async function deleteSubtask(taskId, idx) {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    task.subtasks.splice(idx, 1);
+    await apiFetch(`/${taskId}`, { method: 'PUT', body: JSON.stringify({ subtasks: task.subtasks }) });
+    render();
+}
+
+// ── Add task ──────────────────────────────────────────────
+
+async function addTask() {
+    const input = document.getElementById('new-task-input');
+    let rawTitle = input.value.trim();
+    if (!rawTitle) return;
+
+    const { date: nlDate, clean } = extractNL(rawTitle);
+    const title   = clean;
+    const dueDate = nlDate || selectedDueDate || null;
+
+    input.value = '';
+    document.getElementById('nl-hint').classList.add('hidden');
+    resetDueDate();
+
+    const task = await apiFetch('', {
+        method: 'POST',
+        body: JSON.stringify({ title, priority: selectedPriority, due_date: dueDate }),
+    });
+    if (!task) return;
+    tasks.unshift(task);
+    tasks = tasks.sort((a, b) => a.done - b.done || a.position - b.position);
+    render();
+    haptic();
+}
+
+// ── Clean completed ───────────────────────────────────────
+
+async function cleanCompleted() {
+    const r = await apiFetch('/done', { method: 'DELETE' });
+    if (!r) return;
+    tasks = tasks.filter(t => !t.done);
+    render();
+    sound('Funk');
+    loadStats();
+}
+
+// ── Copy to clipboard ─────────────────────────────────────
+
+function copyMarkdown() {
+    const pending = tasks.filter(t => !t.done);
+    const done    = tasks.filter(t =>  t.done);
+
+    let md = '# Tareas\n\n';
+    if (pending.length) {
+        md += '## Pendientes\n';
+        pending.forEach(t => {
+            md += `- [ ] ${t.title}`;
+            if (t.due_date) md += ` _(${formatDueDate(t.due_date)})_`;
+            md += '\n';
+            (t.subtasks || []).forEach(s => {
+                md += `  - [${s.done ? 'x' : ' '}] ${s.title}\n`;
+            });
+        });
+        md += '\n';
+    }
+    if (done.length) {
+        md += '## Completadas\n';
+        done.forEach(t => { md += `- [x] ${t.title}\n`; });
+    }
+
+    bridge({ type: 'copy', text: md });
+
+    // Visual feedback
+    const btn = document.getElementById('copy-btn');
+    btn.style.color = 'var(--color-accent)';
+    setTimeout(() => { btn.style.color = ''; }, 1200);
+}
+
+// ── Stats ─────────────────────────────────────────────────
+
+async function loadStats() {
+    try {
+        const s = await fetch(`${location.origin}/api/stats`).then(r => r.json());
+        const streak = document.getElementById('stat-streak');
+        const week   = document.getElementById('stat-week');
+        streak.textContent = s.streak > 0 ? `🔥 ${s.streak}d racha` : '🔥 sin racha';
+        week.textContent   = `✓ ${s.week} esta semana`;
+    } catch (_) {}
+}
+
+// ── Search ────────────────────────────────────────────────
+
+function openSearch() {
+    searchQuery = '';
+    document.getElementById('search-row').classList.remove('hidden');
+    document.getElementById('filter-tabs').classList.add('hidden');
+    document.getElementById('search-toggle-btn').classList.add('active');
+    const input = document.getElementById('search-input');
+    input.value = '';
+    input.focus();
+}
+
+function closeSearch() {
+    searchQuery = '';
+    document.getElementById('search-row').classList.add('hidden');
+    document.getElementById('filter-tabs').classList.remove('hidden');
+    document.getElementById('search-toggle-btn').classList.remove('active');
+    render();
+}
+
+// ── Due date UI ───────────────────────────────────────────
+
+function updateDateBtn() {
+    const btn = document.getElementById('calendar-btn');
+    btn.classList.toggle('has-date', !!selectedDueDate);
+}
+
+function resetDueDate() {
+    selectedDueDate = '';
+    document.getElementById('due-date-input').value = '';
+    document.getElementById('date-row').classList.add('hidden');
+    document.getElementById('calendar-btn').classList.remove('has-date');
+}
+
+// ── Drag & drop ───────────────────────────────────────────
+
+function bindDrag(el, task) {
+    if (task.done) return;
+
     el.addEventListener('dragstart', e => {
         dragSrcEl = el;
+        el.classList.add('dragging');
         e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', el.dataset.id);
-        // Small delay so the drag image renders before we apply opacity
-        requestAnimationFrame(() => el.classList.add('dragging'));
+        e.dataTransfer.setData('text/plain', task.id);
     });
 
     el.addEventListener('dragend', () => {
         el.classList.remove('dragging');
         document.querySelectorAll('.task-item').forEach(i => i.classList.remove('drag-over'));
-        dragSrcEl = null;
         saveOrder();
     });
 
     el.addEventListener('dragover', e => {
         e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        if (el !== dragSrcEl) el.classList.add('drag-over');
+        if (dragSrcEl && dragSrcEl !== el && !task.done) {
+            document.querySelectorAll('.task-item').forEach(i => i.classList.remove('drag-over'));
+            el.classList.add('drag-over');
+            const list = document.getElementById('task-list');
+            const items = [...list.querySelectorAll('.task-item:not(.done)')];
+            const srcIdx = items.indexOf(dragSrcEl);
+            const dstIdx = items.indexOf(el);
+            if (srcIdx >= 0 && dstIdx >= 0 && srcIdx !== dstIdx) {
+                if (srcIdx < dstIdx) list.insertBefore(dragSrcEl, el.nextSibling);
+                else                 list.insertBefore(dragSrcEl, el);
+            }
+        }
     });
 
-    el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
-
-    el.addEventListener('drop', e => {
-        e.preventDefault();
-        el.classList.remove('drag-over');
-        if (!dragSrcEl || el === dragSrcEl) return;
-
-        const list   = document.getElementById('task-list');
-        const items  = [...list.querySelectorAll('.task-item:not(.leaving)')];
-        const srcIdx = items.indexOf(dragSrcEl);
-        const dstIdx = items.indexOf(el);
-
-        if (srcIdx < dstIdx) el.after(dragSrcEl);
-        else                  el.before(dragSrcEl);
-    });
+    el.addEventListener('drop', e => { e.preventDefault(); });
 }
 
 async function saveOrder() {
-    const list = document.getElementById('task-list');
-    const ids  = [...list.querySelectorAll('.task-item[data-id]')]
-        .map(el => parseInt(el.dataset.id));
-
-    // Sync tasks array to visual order
-    const map = new Map(tasks.map(t => [t.id, t]));
-    tasks = ids.map(id => map.get(id)).filter(Boolean);
-
-    try {
-        await apiFetch('/reorder', {
-            method: 'POST',
-            body: JSON.stringify({ ids }),
-        });
-    } catch (e) {
-        console.error('Reorder failed:', e);
-    }
-}
-
-// ── Due Date ─────────────────────────────────────────────
-
-function dueBadgeHTML(dateStr) {
-    const overdue = isOverdue(dateStr);
-    return `<span class="due-badge${overdue ? ' overdue' : ''}">${formatDueDate(dateStr)}</span>`;
-}
-
-function isOverdue(dateStr) {
-    if (!dateStr) return false;
-    const due   = new Date(dateStr + 'T23:59:59');
-    return due < new Date();
-}
-
-function formatDueDate(dateStr) {
-    const due   = new Date(dateStr + 'T00:00:00');
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const diff  = Math.round((due - today) / 86_400_000);
-
-    if (diff === 0)  return 'Hoy';
-    if (diff === 1)  return 'Mañana';
-    if (diff === -1) return 'Ayer';
-    if (diff < 0)    return `Hace ${Math.abs(diff)}d`;
-    if (diff <= 7)   return `En ${diff}d`;
-    return due.toLocaleDateString('es', { day: 'numeric', month: 'short' });
-}
-
-// ── Actions ──────────────────────────────────────────────
-
-async function toggleTask(id, el) {
-    const task = tasks.find(t => t.id == id);
-    if (!task) return;
-    task.done = parseInt(task.done) ? 0 : 1;
-    syncEl(el, task);
-    render();
-
-    try {
-        const updated = await apiFetch(`/${id}`, {
-            method: 'PUT',
-            body: JSON.stringify({ done: !!parseInt(task.done) }),
-        });
-        if (updated) Object.assign(task, updated);
-        render();
-    } catch {
-        task.done = task.done ? 0 : 1;
-        render();
-    }
-}
-
-async function deleteTask(id, el) {
-    tasks = tasks.filter(t => t.id != id);
-    animateOut(el);
-    render();
-    try {
-        await apiFetch(`/${id}`, { method: 'DELETE' });
-    } catch {
-        loadTasks();
-    }
-}
-
-async function addTask() {
-    const input = document.getElementById('new-task-input');
-    const title = input.value.trim();
-    if (!title) { input.focus(); return; }
-
-    input.value = '';
-    closeDatePicker();
-
-    try {
-        const task = await apiFetch('', {
-            method: 'POST',
-            body: JSON.stringify({
-                title,
-                priority: selectedPriority,
-                due_date: selectedDueDate || '',
-            }),
-        });
-        selectedDueDate = '';
-        updateDateBtn();
-
-        if (task) {
-            tasks.unshift(task);
-            if (filter === 'done') setFilter('all');
-            render();
-        }
-    } catch (e) {
-        console.error('Add failed:', e);
-    }
-}
-
-// ── Filters ──────────────────────────────────────────────
-
-function setFilter(f) {
-    filter = f;
-    document.querySelectorAll('.filter-tab').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.filter === f);
+    const ids = [...document.querySelectorAll('.task-item:not(.done)')]
+        .map(el => +el.dataset.id);
+    ids.forEach((id, pos) => {
+        const t = tasks.find(t => t.id === id);
+        if (t) t.position = pos;
     });
+    await apiFetch('/reorder', { method: 'POST', body: JSON.stringify({ ids }) });
+}
+
+// ── Load ──────────────────────────────────────────────────
+
+async function load() {
+    tasks = await apiFetch('') || [];
     render();
+    loadStats();
 }
 
-// ── Priority picker ──────────────────────────────────────
-
-function setPriority(p) {
-    selectedPriority = p;
-    document.getElementById('prio-dot').className = `priority-dot p${p}`;
-    closePrioMenu();
-}
-
-function closePrioMenu() {
-    document.getElementById('priority-menu').classList.add('hidden');
-}
-
-// ── Date picker ──────────────────────────────────────────
-
-function toggleDatePicker() {
-    const row = document.getElementById('date-row');
-    row.classList.toggle('hidden');
-    if (!row.classList.contains('hidden')) {
-        document.getElementById('due-date-input').focus();
-    }
-}
-
-function closeDatePicker() {
-    document.getElementById('date-row').classList.add('hidden');
-}
-
-function updateDateBtn() {
-    const btn = document.getElementById('calendar-btn');
-    if (selectedDueDate) {
-        btn.classList.add('has-date');
-        btn.title = `Fecha: ${formatDueDate(selectedDueDate)}`;
-    } else {
-        btn.classList.remove('has-date');
-        btn.title = 'Agregar fecha límite';
-    }
-}
-
-// ── Swift Bridge ─────────────────────────────────────────
-
-function sendBadge(count) {
-    try {
-        window.webkit?.messageHandlers?.bridge?.postMessage({ type: 'badge', count });
-    } catch (_) {}
-}
-
-// ── Utils ────────────────────────────────────────────────
-
-function esc(str) {
-    return str
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-// ── Boot ─────────────────────────────────────────────────
+// ── Event bindings ────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
-    loadTasks();
-
-    // Filter tabs
-    document.querySelectorAll('.filter-tab').forEach(btn => {
-        btn.addEventListener('click', () => setFilter(btn.dataset.filter));
-    });
+    // Load tasks
+    load();
 
     // Add task
-    const input  = document.getElementById('new-task-input');
-    const addBtn = document.getElementById('add-btn');
+    const addBtn   = document.getElementById('add-btn');
+    const taskInput = document.getElementById('new-task-input');
+
     addBtn.addEventListener('click', addTask);
-    input.addEventListener('keydown', e => {
-        if (e.key === 'Enter')  addTask();
-        if (e.key === 'Escape') { input.blur(); closePrioMenu(); closeDatePicker(); }
+    taskInput.addEventListener('keydown', e => { if (e.key === 'Enter') addTask(); });
+
+    // Natural language hints
+    taskInput.addEventListener('input', () => {
+        const val  = taskInput.value;
+        const hint = document.getElementById('nl-hint');
+        const { date } = extractNL(val);
+        if (date) {
+            hint.textContent = `📅 ${formatDueDate(date)}`;
+            hint.classList.remove('hidden');
+        } else {
+            hint.classList.add('hidden');
+        }
     });
+
+    // Search
+    document.getElementById('search-toggle-btn').addEventListener('click', openSearch);
+    document.getElementById('search-close-btn').addEventListener('click', closeSearch);
+    document.getElementById('search-input').addEventListener('input', e => {
+        searchQuery = e.target.value;
+        render();
+    });
+
+    // Filter tabs
+    document.querySelectorAll('.filter-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            filter = tab.dataset.filter;
+            document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            render();
+        });
+    });
+
+    // Copy
+    document.getElementById('copy-btn').addEventListener('click', copyMarkdown);
+
+    // Clean
+    document.getElementById('clean-btn').addEventListener('click', cleanCompleted);
+
+    // Calendar
+    const calBtn    = document.getElementById('calendar-btn');
+    const dateRow   = document.getElementById('date-row');
+    const dateInput = document.getElementById('due-date-input');
+    const clearDate = document.getElementById('clear-date-btn');
+
+    calBtn.addEventListener('click', () => dateRow.classList.toggle('hidden'));
+    dateInput.addEventListener('change', () => {
+        selectedDueDate = dateInput.value;
+        updateDateBtn();
+    });
+    clearDate.addEventListener('click', resetDueDate);
 
     // Priority picker
-    document.getElementById('priority-picker').addEventListener('click', e => {
+    const picker  = document.getElementById('priority-picker');
+    const priMenu = document.getElementById('priority-menu');
+    const priDot  = document.getElementById('prio-dot');
+
+    picker.addEventListener('click', e => {
         e.stopPropagation();
-        document.getElementById('priority-menu').classList.toggle('hidden');
+        priMenu.classList.toggle('hidden');
     });
+
     document.querySelectorAll('.prio-option').forEach(btn => {
-        btn.addEventListener('click', () => setPriority(parseInt(btn.dataset.prio)));
+        btn.addEventListener('click', () => {
+            selectedPriority = +btn.dataset.prio;
+            priDot.className = `priority-dot p${selectedPriority}`;
+            priMenu.classList.add('hidden');
+        });
     });
 
-    // Date picker
-    document.getElementById('calendar-btn').addEventListener('click', e => {
-        e.stopPropagation();
-        toggleDatePicker();
-    });
-    document.getElementById('due-date-input').addEventListener('change', e => {
-        selectedDueDate = e.target.value;
-        updateDateBtn();
-        closeDatePicker();
-    });
-    document.getElementById('clear-date-btn').addEventListener('click', () => {
-        selectedDueDate = '';
-        document.getElementById('due-date-input').value = '';
-        updateDateBtn();
-        closeDatePicker();
-    });
-
-    // Close menus on outside click
-    document.addEventListener('click', () => {
-        closePrioMenu();
-        closeDatePicker();
-    });
-
-    setInterval(loadTasks, 60_000);
+    document.addEventListener('click', () => priMenu.classList.add('hidden'));
 });

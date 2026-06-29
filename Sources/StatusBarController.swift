@@ -4,12 +4,11 @@ import ServiceManagement
 
 class StatusBarController {
     let phpManager  = PHPServerManager()
-    private var statusItem:     NSStatusItem!
-    private var popover:        NSPopover!
-    private var popoverVC:      PopoverController!
-    private var eventMonitor:   Any?
-    private var hotKeyRef:      EventHotKeyRef?
-    private var pendingCount    = 0
+    private var statusItem:   NSStatusItem!
+    private var popover:      NSPopover!
+    private var popoverVC:    PopoverController!
+    private var eventMonitor: Any?
+    private var hotKeyRef:    EventHotKeyRef?
 
     init() {
         setupPHP()
@@ -22,146 +21,126 @@ class StatusBarController {
     // MARK: - Setup
 
     private func setupPHP() {
-        guard let resources = Bundle.main.resourceURL else { return }
-        let wwwPath    = resources.appendingPathComponent("www").path
-        let routerPath = resources.appendingPathComponent("router.php").path
-        phpManager.start(wwwPath: wwwPath, routerPath: routerPath)
+        guard let res = Bundle.main.resourceURL else { return }
+        phpManager.start(
+            wwwPath:    res.appendingPathComponent("www").path,
+            routerPath: res.appendingPathComponent("router.php").path
+        )
     }
 
     private func setupStatusItem() {
-        // variableLength so badge count text can expand the button
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        guard let button = statusItem.button else { return }
-
+        guard let btn = statusItem.button else { return }
         let cfg = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-        button.image = NSImage(systemSymbolName: "checkmark.circle.fill",
-                               accessibilityDescription: "Tareas")?
-            .withSymbolConfiguration(cfg)
-        button.image?.isTemplate = true
-        button.imagePosition     = .imageLeft
-        button.action            = #selector(handleClick(_:))
-        button.target            = self
-        button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        btn.image = NSImage(systemSymbolName: "checkmark.circle.fill",
+                            accessibilityDescription: "Tareas")?.withSymbolConfiguration(cfg)
+        btn.image?.isTemplate = true
+        btn.imagePosition     = .imageLeft
+        btn.action            = #selector(handleClick(_:))
+        btn.target            = self
+        btn.sendAction(on: [.leftMouseUp, .rightMouseUp])
     }
 
     private func setupPopover() {
         popoverVC = PopoverController(port: phpManager.port)
-
-        // Badge callback: JS → Swift → menubar icon
-        popoverVC.onBadgeUpdate = { [weak self] count in
-            self?.updateBadge(count: count)
+        popoverVC.onBadgeUpdate = { [weak self] count, hasOverdue in
+            self?.updateBadge(count: count, hasOverdue: hasOverdue)
         }
 
         popover = NSPopover()
-        popover.contentSize  = NSSize(width: 360, height: 520)
+        popover.contentSize  = NSSize(width: 360, height: 540)
         popover.behavior     = .transient
         popover.animates     = true
         popover.contentViewController = popoverVC
+        syncAppearance()
+
+        DistributedNotificationCenter.default().addObserver(
+            forName: .init("AppleInterfaceThemeChangedNotification"),
+            object: nil, queue: .main
+        ) { [weak self] _ in self?.syncAppearance() }
+    }
+
+    private func syncAppearance() {
+        popover.appearance = NSApp.effectiveAppearance
     }
 
     private func setupGlobalClickMonitor() {
         eventMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] _ in
-            if self?.popover.isShown == true {
-                self?.popover.performClose(nil)
-            }
+            if self?.popover.isShown == true { self?.popover.performClose(nil) }
         }
     }
 
-    // MARK: - Global HotKey (Cmd+Shift+T — no Accessibility needed)
+    // MARK: - HotKey Cmd+Shift+T
 
     private func setupHotKey() {
-        var hotKeyID = EventHotKeyID()
-        hotKeyID.signature = OSType(0x4D425431)  // 'MBT1'
-        hotKeyID.id        = UInt32(1)
+        var id   = EventHotKeyID(); id.signature = 0x4D425431; id.id = 1
+        var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
+                                 eventKind:  OSType(kEventHotKeyPressed))
+        let ptr  = Unmanaged.passUnretained(self).toOpaque()
 
-        var eventSpec = EventTypeSpec(
-            eventClass: OSType(kEventClassKeyboard),
-            eventKind:  OSType(kEventHotKeyPressed)
-        )
-
-        let selfPtr = Unmanaged.passUnretained(self).toOpaque()
-
-        InstallEventHandler(
-            GetApplicationEventTarget(),
-            { (_, _, userData) -> OSStatus in
-                guard let ptr = userData else { return OSStatus(eventNotHandledErr) }
-                let ctrl = Unmanaged<StatusBarController>.fromOpaque(ptr).takeUnretainedValue()
-                DispatchQueue.main.async { ctrl.openPopover() }
+        InstallEventHandler(GetApplicationEventTarget(),
+            { (_, _, ud) -> OSStatus in
+                guard let p = ud else { return OSStatus(eventNotHandledErr) }
+                let c = Unmanaged<StatusBarController>.fromOpaque(p).takeUnretainedValue()
+                DispatchQueue.main.async { c.openPopover() }
                 return noErr
-            },
-            1,
-            &eventSpec,
-            selfPtr,
-            nil
-        )
+            }, 1, &spec, ptr, nil)
 
-        // Cmd+Shift+T  (kVK_ANSI_T = 17)
-        RegisterEventHotKey(
-            UInt32(kVK_ANSI_T),
-            UInt32(cmdKey | shiftKey),
-            hotKeyID,
-            GetApplicationEventTarget(),
-            0,
-            &hotKeyRef
-        )
+        RegisterEventHotKey(UInt32(kVK_ANSI_T), UInt32(cmdKey | shiftKey),
+                            id, GetApplicationEventTarget(), 0, &hotKeyRef)
     }
 
     // MARK: - Badge
 
-    func updateBadge(count: Int) {
-        pendingCount = count
-        guard let button = statusItem.button else { return }
-
+    func updateBadge(count: Int, hasOverdue: Bool) {
+        guard let btn = statusItem.button else { return }
         if count > 0 {
-            button.title          = " \(count > 99 ? "99+" : "\(count)")"
-            button.font           = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+            let label  = count > 99 ? "99+" : "\(count)"
+            let color: NSColor = hasOverdue ? .systemRed : .labelColor
+            let attrs: [NSAttributedString.Key: Any] = [
+                .foregroundColor: color,
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+            ]
+            btn.attributedTitle = NSAttributedString(string: " \(label)", attributes: attrs)
         } else {
-            button.title = ""
+            btn.attributedTitle = NSAttributedString(string: "")
         }
     }
 
     // MARK: - Actions
 
     @objc private func handleClick(_ sender: NSStatusBarButton) {
-        guard let event = NSApp.currentEvent else { return }
-        if event.type == .rightMouseUp {
-            showContextMenu(relativeTo: sender)
-            return
-        }
-        if popover.isShown {
-            popover.performClose(sender)
-        } else {
-            openPopover()
-        }
+        guard let ev = NSApp.currentEvent else { return }
+        if ev.type == .rightMouseUp { showContextMenu(relativeTo: sender); return }
+        if popover.isShown { popover.performClose(sender) } else { openPopover() }
     }
 
     func openPopover() {
-        guard let button = statusItem.button, !popover.isShown else { return }
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        guard let btn = statusItem.button, !popover.isShown else { return }
+        syncAppearance()
+        popover.show(relativeTo: btn.bounds, of: btn, preferredEdge: .minY)
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    private func showContextMenu(relativeTo button: NSStatusBarButton) {
+    private func showContextMenu(relativeTo btn: NSStatusBarButton) {
         let menu = NSMenu()
 
-        let title = NSMenuItem(title: "MenuBar Tasks  v1.1", action: nil, keyEquivalent: "")
+        let title = NSMenuItem(title: "MenuBar Tasks  v1.2", action: nil, keyEquivalent: "")
         title.isEnabled = false
         menu.addItem(title)
 
-        let hotkey = NSMenuItem(title: "Abrir: ⌘⇧T", action: nil, keyEquivalent: "")
-        hotkey.isEnabled = false
-        menu.addItem(hotkey)
+        let hk = NSMenuItem(title: "Abrir: ⌘⇧T", action: nil, keyEquivalent: "")
+        hk.isEnabled = false
+        menu.addItem(hk)
 
         menu.addItem(.separator())
 
-        // Login item toggle
-        let isLoginEnabled = SMAppService.mainApp.status == .enabled
+        let isLogin = SMAppService.mainApp.status == .enabled
         let loginItem = NSMenuItem(
-            title: isLoginEnabled ? "✓ Iniciar al encender Mac" : "Iniciar al encender Mac",
-            action: #selector(toggleLoginItem),
-            keyEquivalent: ""
+            title: isLogin ? "✓ Iniciar al encender Mac" : "Iniciar al encender Mac",
+            action: #selector(toggleLoginItem), keyEquivalent: ""
         )
         loginItem.target = self
         menu.addItem(loginItem)
@@ -173,25 +152,20 @@ class StatusBarController {
         menu.addItem(quit)
 
         statusItem.menu = menu
-        button.performClick(nil)
+        btn.performClick(nil)
         statusItem.menu = nil
     }
 
     @objc private func toggleLoginItem() {
         do {
-            if SMAppService.mainApp.status == .enabled {
-                try SMAppService.mainApp.unregister()
-            } else {
-                try SMAppService.mainApp.register()
-            }
-        } catch {
-            NSLog("[MenuBarTasks] Login item toggle failed: \(error)")
-        }
+            if SMAppService.mainApp.status == .enabled { try SMAppService.mainApp.unregister() }
+            else { try SMAppService.mainApp.register() }
+        } catch { NSLog("[MenuBarTasks] Login item: \(error)") }
     }
 
     deinit {
         if let m = eventMonitor { NSEvent.removeMonitor(m) }
-        if let hk = hotKeyRef   { UnregisterEventHotKey(hk) }
+        if let h = hotKeyRef    { UnregisterEventHotKey(h) }
         phpManager.stop()
     }
 }
