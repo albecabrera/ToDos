@@ -19,8 +19,8 @@ class StatusBarController {
     private var overviewTimer:   Timer?
     private let notificationDelegate = NotificationDelegate()
 
-    // Feste Anzeigezeiten der Vollbild-Übersicht; danach alle 2 Stunden bis Mitternacht
-    private let overviewTimes: [(h: Int, m: Int)] = [(7, 55), (9, 0), (10, 8), (11, 38), (12, 48), (14, 48)]
+    // Feste Anzeigezeiten der Vollbild-Übersicht
+    private let overviewTimes: [(h: Int, m: Int)] = [(7, 50), (13, 0), (21, 0)]
 
     init() {
         setupPHP()
@@ -276,7 +276,7 @@ class StatusBarController {
         }
     }
 
-    /// Nächster Anzeigezeitpunkt: feste Zeiten, danach alle 2 h bis Mitternacht; sonst morgen die erste feste Zeit.
+    /// Nächster fester Anzeigezeitpunkt; sonst am nächsten Tag der erste.
     private func nextOverviewDate(after now: Date) -> Date {
         let cal = Calendar.current
         for dayOffset in 0...1 {
@@ -286,14 +286,6 @@ class StatusBarController {
             for t in overviewTimes {
                 if let d = cal.date(bySettingHour: t.h, minute: t.m, second: 0, of: base) {
                     candidates.append(d)
-                }
-            }
-            // Alle 2 Stunden nach 14:48, solange noch derselbe Tag
-            if var d = cal.date(bySettingHour: 14, minute: 48, second: 0, of: base) {
-                d = d.addingTimeInterval(2 * 3600)
-                while cal.isDate(d, inSameDayAs: base) {
-                    candidates.append(d)
-                    d = d.addingTimeInterval(2 * 3600)
                 }
             }
             if let next = candidates.sorted().first(where: { $0 > now }) { return next }

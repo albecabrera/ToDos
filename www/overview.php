@@ -196,6 +196,26 @@
         [data-scheme="light"] body.edit .ov {
             background: #f2f2f7;
         }
+
+        .ov-item-edit-due {
+            display: inline-flex;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+        .ov-date-input, .ov-time-input {
+            font-family: var(--font-ui);
+            font-size: clamp(12px, 1.1vw, 16px);
+            color: var(--color-text);
+            background: var(--glass-input);
+            border: 1px solid var(--color-sep);
+            border-radius: var(--radius-sm);
+            padding: 4px 8px;
+            color-scheme: light dark;
+        }
+        .ov-date-input:focus, .ov-time-input:focus {
+            outline: none;
+            box-shadow: 0 0 0 2px var(--color-accent);
+        }
     </style>
 </head>
 <body>
@@ -320,7 +340,12 @@ function render(tasks) {
                         <span class="ov-check" data-id="${t.id}" title="Als erledigt markieren"></span>
                         <span class="ov-dot p${t.priority || 2}"></span>
                         <span class="ov-item-title" data-id="${t.id}"${editMode ? ' contenteditable="true" spellcheck="false"' : ''}>${esc(t.title)}</span>
-                        ${fmtDue(t) ? `<span class="ov-item-due">${fmtDue(t)}</span>` : ''}
+                        ${editMode
+                            ? `<span class="ov-item-edit-due">
+                                   <input type="date" class="ov-date-input" data-id="${t.id}" value="${t.due_date || ''}">
+                                   <input type="time" class="ov-time-input" data-id="${t.id}" value="${t.due_time || ''}">
+                               </span>`
+                            : (fmtDue(t) ? `<span class="ov-item-due">${fmtDue(t)}</span>` : '')}
                     </div>`).join('')}
             </div>`).join('');
 }
@@ -363,6 +388,16 @@ $('#ov-scroll').addEventListener('focusout', (e) => {
     const next = el.textContent.trim();
     if (!task || !next || next === task.title) { el.textContent = task ? task.title : next; return; }
     updateTask(id, { title: next }).then(loadTasks);
+});
+
+// Fälligkeitsdatum / -zeit im Bearbeiten-Modus ändern
+$('#ov-scroll').addEventListener('change', (e) => {
+    const el = e.target;
+    if (el.classList.contains('ov-date-input')) {
+        updateTask(+el.dataset.id, { due_date: el.value || null }).then(loadTasks);
+    } else if (el.classList.contains('ov-time-input')) {
+        updateTask(+el.dataset.id, { due_time: el.value || null }).then(loadTasks);
+    }
 });
 
 loadTasks();
