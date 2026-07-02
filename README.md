@@ -16,7 +16,7 @@ Ein macOS Menüleisten-Aufgabenmanager mit Liquid-Glass-Interface, lokalem PHP-B
 - **Notizen** — aufklappbares Textfeld pro Aufgabe
 - **Natürliche Sprache** — „Meeting morgen" oder „Bericht nächsten Freitag" setzen das Datum automatisch
 - **Vollbild-Übersicht** `⌘L` — alle offenen Aufgaben im Vollbild, gruppiert nach Überfällig / Heute / Demnächst / Ohne Datum
-- **Automatische Übersicht** — erscheint beim Öffnen des Rechners (Start, Aufwachen, Entsperren) und stündlich, damit keine Aufgabe vergessen wird
+- **Automatische Übersicht** — erscheint beim Öffnen des Rechners (Start, Aufwachen, Entsperren) und zu festen Zeiten (07:55, 10:08, 11:38, 12:48, 14:48, danach alle 2 Stunden bis Mitternacht), damit keine Aufgabe vergessen wird
 - **Bearbeiten-Modus** — `Esc` schaltet die Vollbild-Übersicht in einen editierbaren Modus: abhaken und Titel inline ändern
 - **Erinnerungen** — fällige Aufgaben lösen eine Benachrichtigung mit angenehmem Ton (Glass) aus
 - **Suche** — Echtzeitfilter über Titel und Notizen
@@ -78,7 +78,7 @@ MenuBarTasks.app/
     └── www/
         ├── index.php         # App-HTML-Shell
         ├── detail.php        # Vollbild-Aufgaben-Editor (NSPanel)
-        ├── overview.php      # Vollbild-Übersicht (⌘L, Autostart, stündlich) + Bearbeiten-Modus
+        ├── overview.php      # Vollbild-Übersicht (⌘L, Autostart, feste Zeiten) + Bearbeiten-Modus
         ├── api/
         │   ├── tasks.php     # REST-API + SQLite
         │   └── lists.php     # Listen-CRUD

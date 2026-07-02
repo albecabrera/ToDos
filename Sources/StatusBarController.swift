@@ -19,6 +19,9 @@ class StatusBarController {
     private var overviewTimer:   Timer?
     private let notificationDelegate = NotificationDelegate()
 
+    // Feste Anzeigezeiten der Vollbild-Übersicht; danach alle 2 Stunden bis Mitternacht
+    private let overviewTimes: [(h: Int, m: Int)] = [(7, 55), (10, 8), (11, 38), (12, 48), (14, 48)]
+
     init() {
         setupPHP()
         setupStatusItem()
@@ -247,20 +250,55 @@ class StatusBarController {
             self?.showOverview()
         }
 
-        // Aufwachen aus dem Ruhezustand
+        // Aufwachen aus dem Ruhezustand — Zeitplan neu verankern (Timer schlief mit)
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
-        ) { [weak self] _ in self?.showOverview() }
+        ) { [weak self] _ in self?.showOverview(); self?.scheduleNextOverview() }
 
         // Bildschirm entsperrt (Deckel geöffnet / eingeloggt)
         DistributedNotificationCenter.default().addObserver(
             forName: .init("com.apple.screenIsUnlocked"), object: nil, queue: .main
         ) { [weak self] _ in self?.showOverview() }
 
-        // Stündliche Erinnerung — damit keine Aufgabe vergessen wird
-        overviewTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
+        // Feste Zeitpunkte + danach alle 2 Stunden
+        scheduleNextOverview()
+    }
+
+    /// Plant einen Einmal-Timer auf den nächsten Anzeigezeitpunkt und plant sich danach selbst neu.
+    private func scheduleNextOverview() {
+        overviewTimer?.invalidate()
+        let now  = Date()
+        let fire = nextOverviewDate(after: now)
+        let secs = max(1, fire.timeIntervalSince(now))
+        overviewTimer = Timer.scheduledTimer(withTimeInterval: secs, repeats: false) { [weak self] _ in
             self?.showOverview()
+            self?.scheduleNextOverview()
         }
+    }
+
+    /// Nächster Anzeigezeitpunkt: feste Zeiten, danach alle 2 h bis Mitternacht; sonst morgen die erste feste Zeit.
+    private func nextOverviewDate(after now: Date) -> Date {
+        let cal = Calendar.current
+        for dayOffset in 0...1 {
+            guard let base = cal.date(byAdding: .day, value: dayOffset,
+                                      to: cal.startOfDay(for: now)) else { continue }
+            var candidates: [Date] = []
+            for t in overviewTimes {
+                if let d = cal.date(bySettingHour: t.h, minute: t.m, second: 0, of: base) {
+                    candidates.append(d)
+                }
+            }
+            // Alle 2 Stunden nach 14:48, solange noch derselbe Tag
+            if var d = cal.date(bySettingHour: 14, minute: 48, second: 0, of: base) {
+                d = d.addingTimeInterval(2 * 3600)
+                while cal.isDate(d, inSameDayAs: base) {
+                    candidates.append(d)
+                    d = d.addingTimeInterval(2 * 3600)
+                }
+            }
+            if let next = candidates.sorted().first(where: { $0 > now }) { return next }
+        }
+        return now.addingTimeInterval(3600)   // Fallback (sollte nie eintreten)
     }
 
     func showOverview() {
