@@ -20,7 +20,7 @@ class StatusBarController {
     private let notificationDelegate = NotificationDelegate()
 
     // Feste Anzeigezeiten der Vollbild-Übersicht; danach alle 2 Stunden bis Mitternacht
-    private let overviewTimes: [(h: Int, m: Int)] = [(7, 55), (10, 8), (11, 38), (12, 48), (14, 48)]
+    private let overviewTimes: [(h: Int, m: Int)] = [(7, 55), (9, 0), (10, 8), (11, 38), (12, 48), (14, 48)]
 
     init() {
         setupPHP()
