@@ -77,7 +77,11 @@
 
         .ov-scroll {
             flex: 1;
+            min-height: 0;          /* erlaubt Schrumpfen → internes Scrollen statt Überlauf */
             overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior: contain;
+            padding-bottom: 8vh;    /* letzte Aufgabe nicht hinter dem Hinweis verstecken */
             display: flex;
             flex-direction: column;
             gap: 3vh;
@@ -181,6 +185,16 @@
             outline: none;
             background: var(--glass-input);
             box-shadow: 0 0 0 2px var(--color-accent);
+        }
+
+        /* Bearbeiten-Modus: undurchsichtiger Vollbild-Hintergrund (kein Durchscheinen des Desktops) */
+        body.edit .ov {
+            background: #1c1c1e;
+            backdrop-filter: none;
+            -webkit-backdrop-filter: none;
+        }
+        [data-scheme="light"] body.edit .ov {
+            background: #f2f2f7;
         }
     </style>
 </head>
