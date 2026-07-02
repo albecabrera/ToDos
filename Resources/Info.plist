@@ -21,6 +21,8 @@
     <true/>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSUserNotificationAlertStyle</key>
+    <string>alert</string>
     <!-- Allow WKWebView to load localhost without ATS blocking -->
     <key>NSAppTransportSecurity</key>
     <dict>

@@ -1,142 +1,159 @@
 # MenuBar Tasks
 
-A premium macOS menubar task manager with a Liquid Glass interface, local PHP backend, and zero cloud dependency.
+Ein macOS Menüleisten-Aufgabenmanager mit Liquid-Glass-Interface, lokalem PHP-Backend und ohne Cloud-Abhängigkeit.
 
 ![macOS 13+](https://img.shields.io/badge/macOS-13%2B-black?style=flat-square)
 ![Swift](https://img.shields.io/badge/Swift-5.9-F05138?style=flat-square&logo=swift)
 ![PHP](https://img.shields.io/badge/PHP-8.1%2B-777BB4?style=flat-square&logo=php)
-![SQLite](https://img.shields.io/badge/SQLite-local-003B57?style=flat-square&logo=sqlite)
+![SQLite](https://img.shields.io/badge/SQLite-lokal-003B57?style=flat-square&logo=sqlite)
 
-## Features
+## Funktionen
 
-- **Liquid Glass UI** — NSVisualEffectView + transparent WKWebView, adapts to light/dark mode
-- **Global hotkey** `⌘⇧T` — open from anywhere, no Accessibility permission required
-- **Subtasks** — nested checklist per task, stored as JSON
-- **Notes** — expandable text area per task
-- **Natural language dates** — type "reunión mañana" or "entrega viernes" to auto-set due date
-- **Search** — real-time filter across titles and notes
-- **Undo delete** — 5-second toast to restore any deleted task
-- **Badge** — pending count in menubar icon, turns red when overdue tasks exist
-- **Completion sound + haptic** — native macOS feedback on task/subtask completion
-- **Copy as Markdown** — export all tasks to clipboard in Markdown format
-- **Auto-clean** — one-tap button to archive all completed tasks
-- **Streak & stats** — consecutive-day completion streak and weekly count in header
-- **Drag & drop reorder** — HTML5 drag to reprioritize pending tasks
-- **Priority system** — Low / Medium / High with color indicators
-- **Due dates** — per-task date picker with relative labels (Hoy, Mañana, En 3d…)
-- **Login item** — optional launch at login via right-click context menu
-- **No Xcode required** — builds with `swiftc` directly
+- **Liquid Glass UI** — NSVisualEffectView + transparente WKWebView, passt sich Hell/Dunkel automatisch an
+- **Globaler Hotkey** `⌥T` — überall öffnen/schließen, keine Barrierefreiheits-Berechtigung erforderlich
+- **Eigene Listen** — Listen erstellen, umbenennen und löschen; Aufgaben Listen zuweisen
+- **Unteraufgaben** — verschachtelte Checkliste pro Aufgabe, als JSON gespeichert
+- **Notizen** — aufklappbares Textfeld pro Aufgabe
+- **Natürliche Sprache** — „Meeting morgen" oder „Bericht nächsten Freitag" setzen das Datum automatisch
+- **Vollbild-Übersicht** `⌘L` — alle offenen Aufgaben im Vollbild, gruppiert nach Überfällig / Heute / Demnächst / Ohne Datum
+- **Automatische Übersicht** — erscheint beim Öffnen des Rechners (Start, Aufwachen, Entsperren) und stündlich, damit keine Aufgabe vergessen wird
+- **Bearbeiten-Modus** — `Esc` schaltet die Vollbild-Übersicht in einen editierbaren Modus: abhaken und Titel inline ändern
+- **Erinnerungen** — fällige Aufgaben lösen eine Benachrichtigung mit angenehmem Ton (Glass) aus
+- **Suche** — Echtzeitfilter über Titel und Notizen
+- **Rückgängig-Toast** — 5 Sekunden Zeit zum Wiederherstellen gelöschter Aufgaben
+- **Abzeichen** — Anzahl offener Aufgaben in der Menüleiste, rot wenn überfällige vorhanden
+- **Ton & Haptik** — natives macOS-Feedback beim Erledigen
+- **Als Markdown kopieren** — alle Aufgaben ins Clipboard exportieren
+- **Aufräumen** — erledigte Aufgaben mit einem Tap archivieren
+- **Serie & Statistiken** — Tages-Serie und Wochenanzahl im Header
+- **Drag & Drop** — Aufgaben per Drag neu anordnen
+- **Prioritäten** — Niedrig / Mittel / Hoch mit Farbmarkierung
+- **Fälligkeitsdaten** — Datumsauswahl mit relativen Labels (Heute, Morgen, In 3d…)
+- **Autostart** — optionaler Start beim Einloggen via Rechtsklick-Menü
+- **Kein Xcode nötig** — baut direkt mit `swiftc`
 
-## Stack
+## Technologie-Stack
 
-| Layer    | Technology                                      |
-|----------|-------------------------------------------------|
-| App host | Swift + AppKit (NSStatusItem, NSPopover)        |
-| UI       | WKWebView → PHP-served HTML/CSS/JS              |
-| Backend  | PHP 8 built-in server on port 8742              |
-| Database | SQLite via PDO at `~/Library/Application Support/MenuBarTasks/tasks.db` |
-| Hotkey   | Carbon HIToolbox (no Accessibility permission)  |
+| Schicht   | Technologie |
+|-----------|-------------|
+| App-Host  | Swift + AppKit (NSStatusItem, NSPopover, NSPanel) |
+| UI        | WKWebView → PHP-gelieferte HTML/CSS/JS |
+| Backend   | PHP 8 Built-in-Server auf Port 8742 |
+| Datenbank | SQLite via PDO unter `~/Library/Application Support/MenuBarTasks/tasks.db` |
+| Hotkey    | Carbon HIToolbox (keine Barrierefreiheits-Berechtigung) |
 
-## Requirements
+## Voraussetzungen
 
-- macOS 13 Ventura or later
+- macOS 13 Ventura oder neuer
 - Xcode Command Line Tools (`xcode-select --install`)
 - PHP 8.1+ (`brew install php`)
-- Swift compiler (`swiftc`)
 
-## Build & Run
+## Build & Start
 
 ```bash
-# Clone
-git clone https://github.com/albecabrera/MenuBarTasks
-cd MenuBarTasks
-
-# Build
+# Bauen
 make build
 
-# Run
+# Starten (baut neu + startet)
 make run
 
-# Stop
+# Stoppen
 make stop
 
-# Clean build artifacts
+# Build-Artefakte löschen
 make clean
 ```
 
-`make run` kills any previous instance before launching.
+`make run` beendet automatisch jede vorherige Instanz.
 
-## Architecture
+## Architektur
 
 ```
 MenuBarTasks.app/
 ├── MacOS/
-│   └── MenuBarTasks          # Swift binary
+│   └── MenuBarTasks          # Swift-Binary
 └── Resources/
     ├── Info.plist
-    ├── router.php            # PHP router (entry point for built-in server)
+    ├── router.php            # PHP-Router (Einstiegspunkt für Built-in-Server)
     └── www/
-        ├── index.php         # App HTML shell
+        ├── index.php         # App-HTML-Shell
+        ├── detail.php        # Vollbild-Aufgaben-Editor (NSPanel)
+        ├── overview.php      # Vollbild-Übersicht (⌘L, Autostart, stündlich) + Bearbeiten-Modus
         ├── api/
-        │   └── tasks.php     # REST API + SQLite (GET/POST/PUT/DELETE)
-        ├── css/style.css     # Liquid Glass design tokens + components
-        └── js/app.js         # Frontend logic (no framework)
+        │   ├── tasks.php     # REST-API + SQLite
+        │   └── lists.php     # Listen-CRUD
+        ├── css/style.css     # Liquid Glass Design-Tokens + Komponenten
+        └── js/app.js         # Frontend-Logik (kein Framework)
 ```
 
-### Swift → PHP bridge
+### Swift → PHP Brücke
 
-At launch, `PHPServerManager` spawns PHP's built-in server on `127.0.0.1:8742` using the bundled `router.php`. The WKWebView loads `http://127.0.0.1:8742/`. All task operations go through `fetch()` calls to the local API.
+`PHPServerManager` startet beim Launch den PHP-Built-in-Server auf `127.0.0.1:8742`. Die WKWebView lädt `http://127.0.0.1:8742/`. Alle Aufgaben-Operationen laufen über `fetch()`-Aufrufe an die lokale API.
 
-### JS → Swift bridge
+### JS → Swift Brücke
 
-`window.webkit.messageHandlers.bridge.postMessage(msg)` is used for native actions:
+`window.webkit.messageHandlers.bridge.postMessage(msg)` für native Aktionen:
 
-| `msg.type` | Effect |
-|------------|--------|
-| `badge`    | Updates menubar icon count and color (red if overdue) |
-| `haptic`   | NSHapticFeedbackManager trigger |
-| `sound`    | NSSound by name (Pop, Funk, etc.) |
-| `copy`     | Copy text to NSPasteboard |
+| `msg.type`   | Effekt |
+|--------------|--------|
+| `badge`      | Menüleisten-Zähler und Farbe aktualisieren (rot bei überfälligen) |
+| `haptic`     | NSHapticFeedbackManager auslösen |
+| `sound`      | NSSound nach Name (Pop, Funk, …) |
+| `copy`       | Text in NSPasteboard kopieren |
+| `openDetail` | NSPanel mit Vollbild-Editor für `taskId` / `listId` öffnen |
+| `closeOverview` | Vollbild-Übersicht schließen (Klick auf ✕) |
 
-### Data persistence
+### Datenpersistenz
 
-SQLite database lives at `~/Library/Application Support/MenuBarTasks/tasks.db` — survives rebuilds and app updates. Schema migrations use safe `ALTER TABLE ADD COLUMN` inside try/catch.
+SQLite-Datenbank unter `~/Library/Application Support/MenuBarTasks/tasks.db` — überlebt Neuentwicklungen und App-Updates. Schema-Migrationen via `ALTER TABLE ADD COLUMN` in try/catch.
 
-## API Endpoints
+## API-Endpunkte
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/tasks` | List all tasks |
-| POST | `/api/tasks` | Create task |
-| PUT | `/api/tasks/:id` | Update task (title, done, priority, due_date, notes, subtasks) |
-| DELETE | `/api/tasks/:id` | Delete task |
-| POST | `/api/tasks/reorder` | Reorder by `{ids: [...]}` |
-| DELETE | `/api/tasks/done` | Clean all completed tasks |
-| GET | `/api/stats` | Streak + weekly + total stats |
+| Methode | Pfad | Beschreibung |
+|---------|------|--------------|
+| GET | `/api/tasks` | Alle Aufgaben auflisten |
+| GET | `/api/tasks?list_id=X` | Aufgaben einer Liste |
+| POST | `/api/tasks` | Aufgabe erstellen |
+| PUT | `/api/tasks/:id` | Aufgabe aktualisieren |
+| DELETE | `/api/tasks/:id` | Aufgabe löschen |
+| POST | `/api/tasks/reorder` | Reihenfolge mit `{ids:[…]}` ändern |
+| DELETE | `/api/tasks/done` | Alle erledigten löschen |
+| GET | `/api/stats` | Serie + Woche + Gesamt |
+| GET | `/api/lists` | Alle Listen |
+| POST | `/api/lists` | Liste erstellen |
+| PUT | `/api/lists/:id` | Liste umbenennen/Farbe ändern |
+| DELETE | `/api/lists/:id` | Liste löschen (Aufgaben bleiben) |
+| GET | `/detail?task_id=X` | Vollbild-Editor für eine Aufgabe |
+| GET | `/detail?list_id=X` | Vollbild-Übersicht einer Liste |
+| GET | `/overview` | Vollbild-Übersicht aller offenen Aufgaben (Bearbeiten-Modus via Esc) |
 
-## Natural Language Dates
+## Natürliche Sprache — Datumserkennung
 
-Detected at task input time. The date keyword is stripped from the title.
+Das Datum-Schlüsselwort wird aus dem Titel entfernt und als Fälligkeitsdatum gesetzt.
 
-| Input | Result |
-|-------|--------|
-| `reunión hoy` | Today |
-| `entrega mañana` | Tomorrow |
-| `informe viernes` | Next Friday |
-| `revisión en 3 días` | In 3 days |
-| `pasado mañana` | Day after tomorrow |
+| Eingabe | Ergebnis |
+|---------|----------|
+| `Meeting heute` | Heute |
+| `Bericht morgen` | Morgen |
+| `Abgabe übermorgen` | Übermorgen |
+| `Präsentation freitag` | Nächsten Freitag |
+| `Review in 3 Tagen` | In 3 Tagen |
+| `nächsten Montag` | Nächsten Montag |
 
-English keywords (`today`, `tomorrow`, weekday names) also supported.
+Englische und spanische Schlüsselwörter werden ebenfalls erkannt.
 
-## Keyboard Shortcuts
+## Tastenkürzel
 
-| Shortcut | Action |
-|----------|--------|
-| `⌘⇧T` | Toggle menubar popover (global) |
-| `Enter` | Add task / save edit |
-| `Escape` | Cancel inline edit |
-| `Double-click` task title | Inline edit |
+| Kürzel | Aktion |
+|--------|--------|
+| `⌥T` | Menüleisten-Popover öffnen/schließen (global) |
+| `⌘L` | Vollbild-Übersicht aller Aufgaben öffnen (global) |
+| `Esc` (in Übersicht) | Bearbeiten-Modus umschalten (abhaken + Titel inline) |
+| `Enter` | Aufgabe hinzufügen / Bearbeitung speichern |
+| `Escape` | Inline-Bearbeitung abbrechen |
+| `Doppelklick` Titel | Inline bearbeiten |
+| `Rechtsklick` Aufgabe | Kontextmenü (Vollbild, Titel bearbeiten, Liste zuweisen, Löschen) |
 
-## License
+## Lizenz
 
 MIT

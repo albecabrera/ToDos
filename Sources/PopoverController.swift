@@ -6,7 +6,8 @@ class PopoverController: NSViewController, WKNavigationDelegate, WKUIDelegate {
     private let port: Int
     private var isFirstLoad = true
 
-    var onBadgeUpdate: ((Int, Bool) -> Void)?   // (pendingCount, hasOverdue)
+    var onBadgeUpdate:  ((Int, Bool) -> Void)?
+    var onOpenDetail:   ((Int?, Int?) -> Void)?   // (taskId, listId)
 
     init(port: Int) {
         self.port = port
@@ -104,6 +105,11 @@ extension PopoverController: WKScriptMessageHandler {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(text, forType: .string)
                 }
+
+            case "openDetail":
+                let taskId = body["taskId"] as? Int
+                let listId = body["listId"] as? Int
+                self?.onOpenDetail?(taskId, listId)
 
             default: break
             }

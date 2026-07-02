@@ -20,6 +20,16 @@ function db(): PDO
     $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
 
     $pdo->exec("
+        CREATE TABLE IF NOT EXISTS lists (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            name       TEXT    NOT NULL,
+            color      TEXT    NOT NULL DEFAULT '#007AFF',
+            position   INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+        )
+    ");
+
+    $pdo->exec("
         CREATE TABLE IF NOT EXISTS tasks (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
             title      TEXT    NOT NULL,
@@ -29,16 +39,21 @@ function db(): PDO
             due_date   TEXT    NULL,
             notes      TEXT    NULL,
             subtasks   TEXT    NOT NULL DEFAULT '[]',
+            list_id    INTEGER NULL REFERENCES lists(id),
             created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
             updated_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
         )
     ");
 
     foreach ([
-        'position INTEGER NOT NULL DEFAULT 0',
-        'due_date TEXT NULL',
-        'notes    TEXT NULL',
-        "subtasks TEXT NOT NULL DEFAULT '[]'",
+        'position   INTEGER NOT NULL DEFAULT 0',
+        'due_date   TEXT NULL',
+        'due_time   TEXT NULL',
+        'notes      TEXT NULL',
+        "subtasks   TEXT NOT NULL DEFAULT '[]'",
+        'list_id    INTEGER NULL',
+        'remind_min INTEGER NULL',
+        'reminded   INTEGER NOT NULL DEFAULT 0',
     ] as $col) {
         try { $pdo->exec("ALTER TABLE tasks ADD COLUMN $col"); } catch (PDOException) {}
     }
@@ -48,10 +63,14 @@ function db(): PDO
 
 function formatTask(array $row): array
 {
-    $row['done']     = (int) $row['done'];
-    $row['priority'] = (int) $row['priority'];
-    $row['position'] = (int) $row['position'];
-    $row['subtasks'] = json_decode($row['subtasks'] ?? '[]', true) ?: [];
+    $row['done']       = (int) $row['done'];
+    $row['priority']   = (int) $row['priority'];
+    $row['position']   = (int) $row['position'];
+    $row['list_id']    = $row['list_id']    !== null ? (int)$row['list_id']    : null;
+    $row['remind_min'] = $row['remind_min'] !== null ? (int)$row['remind_min'] : null;
+    $row['reminded']   = (int)($row['reminded'] ?? 0);
+    $row['subtasks']   = json_decode($row['subtasks'] ?? '[]', true) ?: [];
+    $row['due_time']   = $row['due_time'] ?? null;
     return $row;
 }
 
@@ -100,6 +119,25 @@ if ($method === 'DELETE' && preg_match('#^/api/tasks/done#', $uri)) {
     exit;
 }
 
+// ── GET /api/tasks/reminders ─────────────────────────────
+if ($method === 'GET' && preg_match('#^/api/tasks/reminders#', $uri)) {
+    $pdo  = db();
+    $rows = $pdo->query("
+        SELECT * FROM tasks
+        WHERE done        = 0
+          AND reminded    = 0
+          AND remind_min  IS NOT NULL
+          AND due_date    IS NOT NULL
+          AND due_time    IS NOT NULL
+          AND datetime(due_date || ' ' || due_time)
+              <= datetime('now', 'localtime', '+' || remind_min || ' minutes')
+          AND datetime(due_date || ' ' || due_time)
+              >= datetime('now', 'localtime', '-3 minutes')
+    ")->fetchAll();
+    echo json_encode(array_map('formatTask', $rows));
+    exit;
+}
+
 // ── POST /api/tasks/reorder ───────────────────────────────
 if ($method === 'POST' && preg_match('#^/api/tasks/reorder#', $uri)) {
     $pdo  = db();
@@ -119,8 +157,24 @@ $pdo = db();
 switch ($method) {
 
     case 'GET':
-        $rows = $pdo->query('SELECT * FROM tasks ORDER BY done ASC, position ASC, created_at ASC')->fetchAll();
-        echo json_encode(array_map('formatTask', $rows));
+        if ($id) {
+            $row = $pdo->prepare("SELECT * FROM tasks WHERE id=?");
+            $row->execute([$id]);
+            $task = $row->fetch();
+            if (!$task) { http_response_code(404); echo json_encode(['error' => 'not found']); break; }
+            echo json_encode(formatTask($task));
+            break;
+        }
+        $listId = $_GET['list_id'] ?? null;
+        $where  = '';
+        $params = [];
+        if ($listId !== null) {
+            $where    = 'WHERE list_id=?';
+            $params[] = (int)$listId;
+        }
+        $stmt = $pdo->prepare("SELECT * FROM tasks $where ORDER BY done ASC, position ASC, created_at ASC");
+        $stmt->execute($params);
+        echo json_encode(array_map('formatTask', $stmt->fetchAll()));
         break;
 
     case 'POST':
@@ -128,14 +182,17 @@ switch ($method) {
         $title    = trim($b['title'] ?? '');
         if (!$title) { http_response_code(400); echo json_encode(['error' => 'title required']); break; }
 
-        $prio     = max(1, min(3, (int)($b['priority'] ?? 2)));
-        $dueDate  = ($b['due_date'] ?? '') ?: null;
-        $notes    = ($b['notes']    ?? '') ?: null;
-        $subtasks = json_encode($b['subtasks'] ?? []);
-        $maxPos   = (int) $pdo->query('SELECT COALESCE(MAX(position)+1,0) FROM tasks WHERE done=0')->fetchColumn();
+        $prio      = max(1, min(3, (int)($b['priority'] ?? 2)));
+        $dueDate   = ($b['due_date']   ?? '') ?: null;
+        $dueTime   = ($b['due_time']   ?? '') ?: null;
+        $notes     = ($b['notes']      ?? '') ?: null;
+        $subtasks  = json_encode($b['subtasks'] ?? []);
+        $listId    = array_key_exists('list_id', $b) && $b['list_id'] ? (int)$b['list_id'] : null;
+        $remindMin = array_key_exists('remind_min', $b) && $b['remind_min'] !== null ? (int)$b['remind_min'] : null;
+        $maxPos    = (int) $pdo->query('SELECT COALESCE(MAX(position)+1,0) FROM tasks WHERE done=0')->fetchColumn();
 
-        $pdo->prepare('INSERT INTO tasks (title,priority,position,due_date,notes,subtasks) VALUES (?,?,?,?,?,?)')
-            ->execute([$title, $prio, $maxPos, $dueDate, $notes, $subtasks]);
+        $pdo->prepare('INSERT INTO tasks (title,priority,position,due_date,due_time,notes,subtasks,list_id,remind_min) VALUES (?,?,?,?,?,?,?,?,?)')
+            ->execute([$title, $prio, $maxPos, $dueDate, $dueTime, $notes, $subtasks, $listId, $remindMin]);
         $task = formatTask($pdo->query("SELECT * FROM tasks WHERE id={$pdo->lastInsertId()}")->fetch());
         http_response_code(201);
         echo json_encode($task);
@@ -150,8 +207,16 @@ switch ($method) {
         if (array_key_exists('title',    $b) && trim($b['title'])) { $fields[] = 'title=?';    $params[] = trim($b['title']); }
         if (array_key_exists('priority', $b)) { $fields[] = 'priority=?'; $params[] = max(1,min(3,(int)$b['priority'])); }
         if (array_key_exists('due_date', $b)) { $fields[] = 'due_date=?'; $params[] = $b['due_date'] ?: null; }
-        if (array_key_exists('notes',    $b)) { $fields[] = 'notes=?';    $params[] = $b['notes'] ?: null; }
-        if (array_key_exists('subtasks', $b)) { $fields[] = 'subtasks=?'; $params[] = json_encode($b['subtasks']); }
+        if (array_key_exists('due_time',   $b)) { $fields[] = 'due_time=?';   $params[] = $b['due_time'] ?: null; }
+        if (array_key_exists('notes',      $b)) { $fields[] = 'notes=?';      $params[] = $b['notes'] ?: null; }
+        if (array_key_exists('subtasks',   $b)) { $fields[] = 'subtasks=?';   $params[] = json_encode($b['subtasks']); }
+        if (array_key_exists('list_id',    $b)) { $fields[] = 'list_id=?';    $params[] = $b['list_id'] ? (int)$b['list_id'] : null; }
+        if (array_key_exists('remind_min', $b)) { $fields[] = 'remind_min=?'; $params[] = $b['remind_min'] !== null ? (int)$b['remind_min'] : null; }
+        if (array_key_exists('reminded',   $b)) { $fields[] = 'reminded=?';   $params[] = (int)(bool)$b['reminded']; }
+        // reset reminded when scheduling changes
+        if (array_key_exists('due_date', $b) || array_key_exists('due_time', $b) || array_key_exists('remind_min', $b)) {
+            if (!array_key_exists('reminded', $b)) { $fields[] = 'reminded=?'; $params[] = 0; }
+        }
 
         if (!$fields) { http_response_code(400); echo json_encode(['error' => 'nothing to update']); break; }
         $fields[] = "updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')";
