@@ -1220,3 +1220,31 @@ html, body {
   animation: slideOut 0.2s ease forwards;
   pointer-events: none;
 }
+
+/* ── Modo web / PWA (sin bridge nativo) ──────────────────── */
+html.web, html.web body {
+  height: 100dvh;
+  background: linear-gradient(160deg, #e8eaf0 0%, #d8dbe4 100%);
+}
+
+html.web[data-scheme="dark"], html.web[data-scheme="dark"] body {
+  background: linear-gradient(160deg, #1c1c22 0%, #101014 100%);
+}
+
+html.web .app {
+  border-radius: 0;
+}
+
+@media (min-width: 700px) {
+  html.web body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  html.web .app {
+    width: 420px;
+    height: min(840px, 94dvh);
+    border-radius: 16px;
+    box-shadow: var(--shadow-card);
+  }
+}

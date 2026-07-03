@@ -8,7 +8,11 @@ $mode   = $taskId !== null ? 'task' : 'list';
 <html lang="de" data-scheme="<?= $scheme ?>">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#1c1c1e">
 <title>Aufgabe</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <style>
 :root {
   --radius-sm: 6px; --radius-md: 10px; --radius-lg: 14px;

@@ -21,6 +21,21 @@ function bridge(msg) {
 }
 const haptic = () => bridge({ type: 'haptic' });
 const sound  = (name = 'Pop') => bridge({ type: 'sound', name });
+const isNative = () => !!window.webkit?.messageHandlers?.bridge;
+
+// ── PWA: service worker + modo web ────────────────────────
+if (!isNative()) {
+    document.documentElement.classList.add('web');
+    const applyScheme = () => {
+        document.documentElement.dataset.scheme =
+            matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    };
+    applyScheme();
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyScheme);
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));
+    }
+}
 
 // ── API ───────────────────────────────────────────────────
 
@@ -862,6 +877,15 @@ function showTaskContextMenu(task, x, y) {
 function openDetailWindow(taskId) {
     const task   = taskId ? tasks.find(t => t.id === taskId) : null;
     const listId = task?.list_id ?? (currentListId ?? null);
+    if (!isNative()) {
+        const q = new URLSearchParams();
+        if (taskId) q.set('task_id', taskId);
+        if (listId) q.set('list_id', listId);
+        const scheme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        q.set('scheme', scheme);
+        window.open(`/detail?${q}`, '_blank');
+        return;
+    }
     bridge({ type: 'openDetail', taskId: taskId ?? null, listId });
 }
 

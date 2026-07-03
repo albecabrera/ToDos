@@ -11,8 +11,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
 
 function db(): PDO
 {
-    $home    = getenv('HOME') ?: posix_getpwuid(posix_getuid())['dir'];
-    $dataDir = $home . '/Library/Application Support/MenuBarTasks';
+    $dataDir = getenv('MBT_DATA_DIR');
+    if (!$dataDir) {
+        $home    = getenv('HOME') ?: posix_getpwuid(posix_getuid())['dir'];
+        $dataDir = $home . '/Library/Application Support/MenuBarTasks';
+    }
     if (!is_dir($dataDir)) mkdir($dataDir, 0755, true);
 
     $pdo = new PDO('sqlite:' . $dataDir . '/tasks.db');

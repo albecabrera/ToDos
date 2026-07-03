@@ -1,0 +1,41 @@
+# MenuBarTasks — Apache config para deploy en subdominio
+# Equivalente a router.php (que solo usa el PHP built-in server)
+
+RewriteEngine On
+
+# Rutas limpias → PHP
+RewriteRule ^detail$    detail.php    [L,QSA]
+RewriteRule ^overview$  overview.php  [L,QSA]
+RewriteRule ^api/lists  api/lists.php [L,QSA]
+RewriteRule ^api/       api/tasks.php [L,QSA]
+
+# Bloquear acceso directo a la base de datos y dotfiles
+<FilesMatch "\.(db|sqlite|sqlite3)$">
+    Require all denied
+</FilesMatch>
+RedirectMatch 404 ^/data/
+
+# MIME correcto para el manifest
+AddType application/manifest+json .webmanifest
+
+# Cache: estáticos versionables largos, HTML/API nada
+<IfModule mod_headers.c>
+    <FilesMatch "\.(png|css|js)$">
+        Header set Cache-Control "public, max-age=86400"
+    </FilesMatch>
+    <FilesMatch "sw\.js$">
+        Header set Cache-Control "no-cache"
+    </FilesMatch>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "same-origin"
+</IfModule>
+
+# ── Auth básica (ACTIVAR antes de exponer públicamente) ────
+# La API no tiene autenticación propia: sin esto, cualquiera
+# puede leer y borrar tus tareas.
+# Crear el archivo con: htpasswd -c /etc/apache2/.htpasswd-tasks alberto
+#
+# AuthType Basic
+# AuthName "Aufgaben"
+# AuthUserFile /etc/apache2/.htpasswd-tasks
+# Require valid-user
