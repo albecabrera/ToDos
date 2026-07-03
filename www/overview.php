@@ -305,14 +305,16 @@ const MO = ['Januar','Februar','März','April','Mai','Juni','Juli','August','Sep
 })();
 
 function dueDateTime(t) {
-    if (!t.due_date) return null;
+    if (!t.due_date && !t.due_time) return null;
+    const datePart = t.due_date || new Date().toISOString().slice(0, 10);
     const time = t.due_time || '23:59';
-    return new Date(`${t.due_date}T${time}:00`);
+    return new Date(`${datePart}T${time}:00`);
 }
 
 function fmtDue(t) {
     const dt = dueDateTime(t);
     if (!dt) return '';
+    if (!t.due_date) return t.due_time;   // solo hora, sin fecha → mostrar la hora sola
     const time = t.due_time ? ` ${t.due_time}` : '';
     const d = dt, now = new Date();
     const sameDay = d.toDateString() === now.toDateString();
