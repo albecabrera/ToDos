@@ -248,6 +248,47 @@
         }
         body.edit .ov-item-delete { display: block; }
         .ov-item-delete:hover { background: var(--color-overdue); color: #fff; transform: scale(1.1); }
+
+        /* ── Composer (⌘N → neue Erinnerung) ── */
+        .ov-composer {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: flex-start;
+            justify-content: center;
+            padding-top: 20vh;
+            background: rgba(0, 0, 0, .35);
+            z-index: 50;
+            animation: ov-in .2s var(--ease-spring);
+        }
+        .ov-composer.open { display: flex; }
+        .ov-composer-box {
+            width: min(680px, 84vw);
+            background: #2c2c2e;
+            border: 1px solid var(--color-sep);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-task);
+            padding: 18px 20px;
+        }
+        [data-scheme="light"] .ov-composer-box { background: #fff; }
+        .ov-composer-input {
+            width: 100%;
+            font-family: var(--font-ui);
+            font-size: clamp(18px, 2vw, 24px);
+            font-weight: 500;
+            color: var(--color-text);
+            background: transparent;
+            border: none;
+            outline: none;
+        }
+        .ov-composer-input::placeholder { color: var(--color-sub); font-weight: 400; }
+        .ov-composer-preview {
+            margin-top: 10px;
+            font-size: 13px;
+            color: var(--color-sub);
+            min-height: 1.2em;
+        }
+        .ov-composer-preview b { color: var(--color-accent); font-weight: 600; }
     </style>
 </head>
 <body>
@@ -259,7 +300,15 @@
     <div class="ov-scroll" id="ov-scroll"></div>
 </div>
 <button class="ov-close" id="ov-close" title="Schließen">✕</button>
-<div class="ov-hint" id="ov-hint"><kbd>Esc</kbd> zum Bearbeiten · Klick auf ✕ zum Schließen</div>
+<div class="ov-hint" id="ov-hint"><kbd>⌘N</kbd> neue Erinnerung · <kbd>Esc</kbd> zum Bearbeiten · Klick auf ✕ zum Schließen</div>
+
+<div class="ov-composer" id="ov-composer">
+    <div class="ov-composer-box">
+        <input class="ov-composer-input" id="ov-composer-input" type="text"
+               placeholder="Neue Erinnerung… z. B. „Anrufen morgen 1400 r:15“" autocomplete="off">
+        <div class="ov-composer-preview" id="ov-composer-preview"></div>
+    </div>
+</div>
 
 <script>
 const $ = (s) => document.querySelector(s);
@@ -288,6 +337,14 @@ function toggleEdit() {
     render(allTasks);
 }
 document.addEventListener('keydown', (e) => {
+    // ⌘N → Composer für neue Erinnerung öffnen
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        openComposer();
+        return;
+    }
+    // Composer offen → eigene Tasten (Enter/Esc) im Composer-Handler
+    if (composerOpen) return;
     // Beim Editieren eines Titels: Enter bestätigt, Esc bricht Feld ab (nicht Modus)
     if (e.target.classList && e.target.classList.contains('ov-item-title') && editMode) {
         if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
@@ -450,6 +507,126 @@ $('#ov-scroll').addEventListener('change', (e) => {
         updateTask(+el.dataset.id, { due_time: el.value || null }).then(loadTasks);
     }
 });
+
+// ── Natural-Language-Parser (portiert aus js/app.js) ──────
+const WEEKDAYS = {
+    donnerstag:4, dienstag:2, mittwoch:3, montag:1, freitag:5, samstag:6, sonntag:0,
+    mo:1, di:2, mi:3, do:4, fr:5, sa:6, so:0,
+    lunes:1, martes:2, miércoles:3, miercoles:3, jueves:4, viernes:5, sábado:6, sabado:6, domingo:0,
+    lun:1, mar:2, mié:3, jue:4, vie:5, sáb:6, dom:0,
+    monday:1, tuesday:2, wednesday:3, thursday:4, friday:5, saturday:6, sunday:0,
+    mon:1, tue:2, wed:3, thu:4, fri:5, sat:6, sun:0,
+};
+function addDays(n) {
+    const d = new Date();
+    d.setDate(d.getDate() + n);
+    return d.toISOString().slice(0, 10);
+}
+function nextWeekday(word) {
+    const w = word.toLowerCase()
+        .replace(/[üú]/g,'u').replace(/[äá]/g,'a').replace(/[öó]/g,'o').replace(/é/g,'e');
+    const key = Object.keys(WEEKDAYS).sort((a,b) => b.length - a.length).find(k => w.startsWith(k));
+    if (key === undefined) return null;
+    const diff = ((WEEKDAYS[key] - new Date().getDay()) + 7) % 7 || 7;
+    return addDays(diff);
+}
+const NL_PATTERNS = [
+    [/\b(heute|hoy|today)\b/i,                             () => addDays(0)],
+    [/\b(morgen|mañana|manana|tomorrow)\b/i,               () => addDays(1)],
+    [/\b(übermorgen|pasado mañana|day after tomorrow)\b/i, () => addDays(2)],
+    [/\bin\s+(\d+)\s+tagen?\b/i,                           m  => addDays(+m[1])],
+    [/\ben\s+(\d+)\s+d[ií]as?\b/i,                        m  => addDays(+m[1])],
+    [/\b(\d+)\s+tagen?\b/i,                                m  => addDays(+m[1])],
+    [/\b(\d+)\s+d[ií]as?\b/i,                             m  => addDays(+m[1])],
+    [/\bn[aä]chsten?\s+(\w+)\b/i,                          m  => nextWeekday(m[1])],
+    [/\bpr[oó]xim[ao]\s+(\w+)\b/i,                        m  => nextWeekday(m[1])],
+    [/\b(montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i, m => nextWeekday(m[1])],
+];
+const TIME_RE   = /\b([01]\d|2[0-3])([0-5]\d)\b/;
+const REMIND_RE = /\br:(\d+)\b/i;
+function extractNL(title) {
+    const rm = title.match(REMIND_RE);
+    const remindMin = rm ? Math.max(1, parseInt(rm[1], 10)) : null;
+    let src = remindMin !== null ? title.replace(REMIND_RE, '').replace(/\s+/g, ' ').trim() : title;
+
+    const COMBINED = /\b(20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\s+([01]\d|2[0-3])([0-5]\d)\b/;
+    const cm = src.match(COMBINED);
+    if (cm) return { date: `${cm[1]}-${cm[2]}-${cm[3]}`, time: `${cm[4]}:${cm[5]}`, remind_min: remindMin, clean: src.replace(COMBINED, '').replace(/\s+/g, ' ').trim() };
+
+    const DATE8 = /\b(20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\b/;
+    const dm = src.match(DATE8);
+    if (dm) {
+        const rest = src.replace(DATE8, '').replace(/\s+/g, ' ').trim();
+        const tm   = rest.match(TIME_RE);
+        return { date: `${dm[1]}-${dm[2]}-${dm[3]}`, time: tm ? `${tm[1]}:${tm[2]}` : null, remind_min: remindMin, clean: tm ? rest.replace(TIME_RE, '').replace(/\s+/g, ' ').trim() : rest };
+    }
+
+    for (const [re, fn] of NL_PATTERNS) {
+        const m = src.match(re);
+        if (m) {
+            const date = fn(m);
+            if (!date) continue;
+            const rest = src.replace(re, '').replace(/\s+/g, ' ').trim();
+            const tm   = rest.match(TIME_RE);
+            return { date, time: tm ? `${tm[1]}:${tm[2]}` : null, remind_min: remindMin, clean: tm ? rest.replace(TIME_RE, '').replace(/\s+/g, ' ').trim() : rest };
+        }
+    }
+    return { date: null, time: null, remind_min: remindMin, clean: src };
+}
+
+// ── Composer (⌘N) ────────────────────────────────────────
+let composerOpen = false;
+const composer      = $('#ov-composer');
+const composerInput = $('#ov-composer-input');
+const composerPrev  = $('#ov-composer-preview');
+
+function openComposer() {
+    if (composerOpen) return;
+    composerOpen = true;
+    composer.classList.add('open');
+    composerInput.value = '';
+    composerPrev.innerHTML = '';
+    composerInput.focus();
+    // WKWebView: Fokus nach evaluateJavaScript ist unzuverlässig → nachfassen
+    setTimeout(() => composerInput.focus(), 30);
+}
+function closeComposer() {
+    composerOpen = false;
+    composer.classList.remove('open');
+    composerInput.blur();
+}
+function updateComposerPreview() {
+    const raw = composerInput.value.trim();
+    if (!raw) { composerPrev.innerHTML = ''; return; }
+    const { date, time, remind_min, clean } = extractNL(raw);
+    const bits = [];
+    if (date) bits.push(`📅 <b>${date}</b>`);
+    if (time) bits.push(`🕑 <b>${time}</b>`);
+    if (remind_min) bits.push(`🔔 <b>${remind_min} Min. vorher</b>`);
+    composerPrev.innerHTML = bits.length ? `${clean || '…'} — ${bits.join(' · ')}` : '';
+}
+async function submitComposer() {
+    if (!composerOpen) return;              // Guard: kein Doppel-Submit (blur nach Enter)
+    const raw = composerInput.value.trim();
+    closeComposer();                        // setzt composerOpen = false → Re-Entry blockiert
+    if (!raw) return;
+    const { date, time, remind_min, clean } = extractNL(raw);
+    const title = clean || raw;
+    await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, priority: 1, due_date: date || null, due_time: time || null, remind_min: remind_min || null }),
+    });
+    loadTasks();
+}
+composerInput.addEventListener('input', updateComposerPreview);
+composerInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter')  { e.preventDefault(); submitComposer(); }
+    if (e.key === 'Escape') { e.preventDefault(); closeComposer(); }  // Escape verwirft
+});
+// Fokus verloren (Klick daneben, Fenster wechselt) → direkt speichern
+composerInput.addEventListener('blur', () => { if (composerOpen) submitComposer(); });
+composer.addEventListener('click', (e) => { if (e.target === composer) submitComposer(); });
 
 loadTasks();
 </script>

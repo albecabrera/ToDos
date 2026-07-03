@@ -16,6 +16,8 @@ class StatusBarController {
     private var reminderTimer: Timer?
 
     private var overviewWindow:  NSWindow?
+    private var overviewWebView: WKWebView?
+    private var overviewKeyMonitor: Any?
     private let notificationDelegate = NotificationDelegate()
 
     init() {
@@ -281,11 +283,27 @@ class StatusBarController {
         window.contentView = webView
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        overviewWindow = window
+        overviewWindow  = window
+        overviewWebView = webView
+
+        // ⌘N → Composer für neue Erinnerung. Command-Shortcuts erreichen den
+        // WKWebView-keydown NICHT (laufen über performKeyEquivalent), daher hier
+        // per lokalem Event-Monitor abfangen und JS aufrufen.
+        overviewKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self = self, self.overviewWindow != nil else { return event }
+            if event.modifierFlags.contains(.command),
+               event.charactersIgnoringModifiers?.lowercased() == "n" {
+                self.overviewWebView?.evaluateJavaScript("window.openComposer && window.openComposer()")
+                return nil   // Event verbrauchen (kein Systembeep)
+            }
+            return event
+        }
         // Esc wird in der Seite behandelt (Bearbeiten umschalten) — ✕ schließt.
     }
 
     func closeOverview() {
+        if let m = overviewKeyMonitor { NSEvent.removeMonitor(m); overviewKeyMonitor = nil }
+        overviewWebView = nil
         overviewWindow?.orderOut(nil)
         overviewWindow = nil
     }
