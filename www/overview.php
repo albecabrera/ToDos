@@ -219,6 +219,35 @@
             outline: none;
             box-shadow: 0 0 0 2px var(--color-accent);
         }
+
+        .ov-dot-edit {
+            display: none;
+            width: 16px; height: 16px;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: transform .15s var(--ease-spring);
+        }
+        body.edit .ov-dot-edit {
+            display: block;
+            flex-shrink: 0;
+        }
+        body.edit .ov-dot-edit:hover { transform: scale(1.15); }
+
+        .ov-item-delete {
+            display: none;
+            flex-shrink: 0;
+            width: 26px; height: 26px;
+            border-radius: 50%;
+            border: none;
+            background: var(--glass-input);
+            color: var(--color-sub);
+            font-size: 13px;
+            line-height: 1;
+            cursor: pointer;
+            transition: background .15s, color .15s, transform .15s var(--ease-spring);
+        }
+        body.edit .ov-item-delete { display: block; }
+        .ov-item-delete:hover { background: var(--color-overdue); color: #fff; transform: scale(1.1); }
     </style>
 </head>
 <body>
@@ -254,7 +283,7 @@ function toggleEdit() {
     editMode = !editMode;
     document.body.classList.toggle('edit', editMode);
     $('#ov-hint').innerHTML = editMode
-        ? '<kbd>Esc</kbd> zum Beenden · Klick auf ✕ zum Schließen'
+        ? '<kbd>Esc</kbd> zum Beenden · Titel, Priorität, Datum & Löschen bearbeitbar'
         : '<kbd>Esc</kbd> zum Bearbeiten · Klick auf ✕ zum Schließen';
     render(allTasks);
 }
@@ -342,12 +371,14 @@ function render(tasks) {
                     <div class="ov-item" data-id="${t.id}">
                         <span class="ov-check" data-id="${t.id}" title="Als erledigt markieren"></span>
                         <span class="ov-dot p${t.priority || 2}"></span>
+                        <span class="ov-dot-edit ov-dot p${t.priority || 2}" data-id="${t.id}" data-prio="${t.priority || 2}" title="Priorität ändern"></span>
                         <span class="ov-item-title" data-id="${t.id}"${editMode ? ' contenteditable="true" spellcheck="false"' : ''}>${esc(t.title)}</span>
                         ${editMode
                             ? `<span class="ov-item-edit-due">
                                    <input type="date" class="ov-date-input" data-id="${t.id}" value="${t.due_date || ''}">
                                    <input type="time" class="ov-time-input" data-id="${t.id}" value="${t.due_time || ''}">
-                               </span>`
+                               </span>
+                               <button class="ov-item-delete" data-id="${t.id}" title="Löschen">✕</button>`
                             : (fmtDue(t) ? `<span class="ov-item-due">${fmtDue(t)}</span>` : '')}
                     </div>`).join('')}
             </div>`).join('');
@@ -377,10 +408,25 @@ function updateTask(id, body) {
 // ── Edit-Interaktionen (nur im Bearbeiten-Modus, via Delegation) ──
 $('#ov-scroll').addEventListener('click', (e) => {
     if (!editMode) return;
+
     const check = e.target.closest('.ov-check');
-    if (!check) return;
-    const id = +check.dataset.id;
-    updateTask(id, { done: 1 }).then(loadTasks);
+    if (check) {
+        updateTask(+check.dataset.id, { done: 1 }).then(loadTasks);
+        return;
+    }
+
+    const dot = e.target.closest('.ov-dot-edit');
+    if (dot) {
+        const next = (+dot.dataset.prio % 3) + 1;
+        updateTask(+dot.dataset.id, { priority: next }).then(loadTasks);
+        return;
+    }
+
+    const del = e.target.closest('.ov-item-delete');
+    if (del) {
+        fetch(`/api/tasks/${del.dataset.id}`, { method: 'DELETE' }).then(loadTasks);
+        return;
+    }
 });
 
 $('#ov-scroll').addEventListener('focusout', (e) => {

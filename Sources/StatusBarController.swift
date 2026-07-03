@@ -16,11 +16,7 @@ class StatusBarController {
     private var reminderTimer: Timer?
 
     private var overviewWindow:  NSWindow?
-    private var overviewTimer:   Timer?
     private let notificationDelegate = NotificationDelegate()
-
-    // Feste Anzeigezeiten der Vollbild-Übersicht
-    private let overviewTimes: [(h: Int, m: Int)] = [(7, 50), (13, 0), (21, 0)]
 
     init() {
         setupPHP()
@@ -29,7 +25,6 @@ class StatusBarController {
         setupGlobalClickMonitor()
         setupHotKey()
         setupReminderTimer()
-        setupOverviewTriggers()
     }
 
     // MARK: - Setup
@@ -90,7 +85,7 @@ class StatusBarController {
         }
     }
 
-    // MARK: - HotKeys — ⌥T Popover · ⌘L Vollbild-Übersicht
+    // MARK: - HotKeys — ⌥T · ⌘L Vollbild-Übersicht
 
     private func setupHotKey() {
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
@@ -107,7 +102,7 @@ class StatusBarController {
                                   MemoryLayout<EventHotKeyID>.size, nil, &hkID)
                 DispatchQueue.main.async {
                     switch hkID.id {
-                    case 1: c.openPopover()
+                    case 1: c.showOverview()
                     case 2: c.showOverview()
                     default: break
                     }
@@ -164,7 +159,7 @@ class StatusBarController {
         title.isEnabled = false
         menu.addItem(title)
 
-        let hk = NSMenuItem(title: "Öffnen: ⌥T", action: nil, keyEquivalent: "")
+        let hk = NSMenuItem(title: "Vollbild-Übersicht: ⌥T", action: nil, keyEquivalent: "")
         hk.isEnabled = false
         menu.addItem(hk)
 
@@ -243,55 +238,7 @@ class StatusBarController {
     }
 
     // MARK: - Fullscreen Overview
-
-    private func setupOverviewTriggers() {
-        // Beim Öffnen des Rechners (App-Start / Login) — kurz warten bis PHP läuft
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
-            self?.showOverview()
-        }
-
-        // Aufwachen aus dem Ruhezustand — Zeitplan neu verankern (Timer schlief mit)
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
-        ) { [weak self] _ in self?.showOverview(); self?.scheduleNextOverview() }
-
-        // Bildschirm entsperrt (Deckel geöffnet / eingeloggt)
-        DistributedNotificationCenter.default().addObserver(
-            forName: .init("com.apple.screenIsUnlocked"), object: nil, queue: .main
-        ) { [weak self] _ in self?.showOverview() }
-
-        // Feste Zeitpunkte + danach alle 2 Stunden
-        scheduleNextOverview()
-    }
-
-    /// Plant einen Einmal-Timer auf den nächsten Anzeigezeitpunkt und plant sich danach selbst neu.
-    private func scheduleNextOverview() {
-        overviewTimer?.invalidate()
-        let now  = Date()
-        let fire = nextOverviewDate(after: now)
-        let secs = max(1, fire.timeIntervalSince(now))
-        overviewTimer = Timer.scheduledTimer(withTimeInterval: secs, repeats: false) { [weak self] _ in
-            self?.showOverview()
-            self?.scheduleNextOverview()
-        }
-    }
-
-    /// Nächster fester Anzeigezeitpunkt; sonst am nächsten Tag der erste.
-    private func nextOverviewDate(after now: Date) -> Date {
-        let cal = Calendar.current
-        for dayOffset in 0...1 {
-            guard let base = cal.date(byAdding: .day, value: dayOffset,
-                                      to: cal.startOfDay(for: now)) else { continue }
-            var candidates: [Date] = []
-            for t in overviewTimes {
-                if let d = cal.date(bySettingHour: t.h, minute: t.m, second: 0, of: base) {
-                    candidates.append(d)
-                }
-            }
-            if let next = candidates.sorted().first(where: { $0 > now }) { return next }
-        }
-        return now.addingTimeInterval(3600)   // Fallback (sollte nie eintreten)
-    }
+    // Öffnet nur noch manuell — über ⌥T oder ⌘L. Keine automatischen Zeitpunkte mehr.
 
     func showOverview() {
         // Schon offen → nach vorne holen, nicht stapeln
@@ -387,7 +334,6 @@ class StatusBarController {
         if let h = hotKeyRef    { UnregisterEventHotKey(h) }
         if let h = hotKeyRef2   { UnregisterEventHotKey(h) }
         reminderTimer?.invalidate()
-        overviewTimer?.invalidate()
         phpManager.stop()
     }
 }
