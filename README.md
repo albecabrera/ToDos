@@ -15,7 +15,7 @@ Ein macOS Menüleisten-Aufgabenmanager mit Liquid-Glass-Interface, lokalem PHP-B
 - **Unteraufgaben** — verschachtelte Checkliste pro Aufgabe, als JSON gespeichert
 - **Notizen** — aufklappbares Textfeld pro Aufgabe
 - **Natürliche Sprache** — „Meeting morgen" oder „Bericht nächsten Freitag" setzen das Datum automatisch
-- **Vollbild-Übersicht** `⌘L` — alle offenen Aufgaben im Vollbild, gruppiert nach Überfällig / Heute / Demnächst / Ohne Datum
+- **Vollbild-Übersicht** `⌥T` — alle offenen Aufgaben im Vollbild, gruppiert nach Überfällig / Heute / Demnächst / Ohne Datum
 - **Automatische Übersicht** — erscheint beim Öffnen des Rechners (Start, Aufwachen, Entsperren) und zu festen Zeiten (07:50, 13:00, 21:00), damit keine Aufgabe vergessen wird
 - **Bearbeiten-Modus** — `Esc` schaltet die Vollbild-Übersicht in einen editierbaren Modus: abhaken, Titel inline sowie Fälligkeitsdatum und -zeit ändern; undurchsichtiger Hintergrund
 - **Erinnerungen** — fällige Aufgaben lösen eine Benachrichtigung mit angenehmem Ton (Glass) aus
@@ -78,7 +78,7 @@ MenuBarTasks.app/
     └── www/
         ├── index.php         # App-HTML-Shell
         ├── detail.php        # Vollbild-Aufgaben-Editor (NSPanel)
-        ├── overview.php      # Vollbild-Übersicht (⌘L, Autostart, feste Zeiten) + Bearbeiten-Modus
+        ├── overview.php      # Vollbild-Übersicht (⌥T, Autostart, feste Zeiten) + Bearbeiten-Modus
         ├── api/
         │   ├── tasks.php     # REST-API + SQLite
         │   └── lists.php     # Listen-CRUD
@@ -146,8 +146,7 @@ Englische und spanische Schlüsselwörter werden ebenfalls erkannt.
 
 | Kürzel | Aktion |
 |--------|--------|
-| `⌥T` | Menüleisten-Popover öffnen/schließen (global) |
-| `⌘L` | Vollbild-Übersicht aller Aufgaben öffnen (global) |
+| `⌥T` | Vollbild-Übersicht aller Aufgaben öffnen (global) |
 | `Esc` (in Übersicht) | Bearbeiten-Modus umschalten (abhaken + Titel inline) |
 | `Enter` | Aufgabe hinzufügen / Bearbeitung speichern |
 | `Escape` | Inline-Bearbeitung abbrechen |

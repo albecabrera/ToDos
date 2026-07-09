@@ -11,7 +11,6 @@ class StatusBarController {
     private var popoverVC:    PopoverController!
     private var eventMonitor: Any?
     private var hotKeyRef:    EventHotKeyRef?
-    private var hotKeyRef2:   EventHotKeyRef?
     private var detailPanel:   NSPanel?
     private var reminderTimer: Timer?
 
@@ -87,7 +86,7 @@ class StatusBarController {
         }
     }
 
-    // MARK: - HotKeys — ⌥T · ⌘L Vollbild-Übersicht
+    // MARK: - HotKeys — ⌥T Vollbild-Übersicht
 
     private func setupHotKey() {
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
@@ -105,7 +104,6 @@ class StatusBarController {
                 DispatchQueue.main.async {
                     switch hkID.id {
                     case 1: c.showOverview()
-                    case 2: c.showOverview()
                     default: break
                     }
                 }
@@ -115,10 +113,6 @@ class StatusBarController {
         var id1 = EventHotKeyID(); id1.signature = 0x4D425431; id1.id = 1
         RegisterEventHotKey(UInt32(kVK_ANSI_T), UInt32(optionKey),
                             id1, GetApplicationEventTarget(), 0, &hotKeyRef)
-
-        var id2 = EventHotKeyID(); id2.signature = 0x4D425431; id2.id = 2
-        RegisterEventHotKey(UInt32(kVK_ANSI_L), UInt32(cmdKey),
-                            id2, GetApplicationEventTarget(), 0, &hotKeyRef2)
     }
 
     // MARK: - Badge
@@ -240,7 +234,7 @@ class StatusBarController {
     }
 
     // MARK: - Fullscreen Overview
-    // Öffnet nur noch manuell — über ⌥T oder ⌘L. Keine automatischen Zeitpunkte mehr.
+    // Öffnet nur noch manuell — über ⌥T. Keine automatischen Zeitpunkte mehr.
 
     func showOverview() {
         // Schon offen → nach vorne holen, nicht stapeln
@@ -350,7 +344,6 @@ class StatusBarController {
     deinit {
         if let m = eventMonitor { NSEvent.removeMonitor(m) }
         if let h = hotKeyRef    { UnregisterEventHotKey(h) }
-        if let h = hotKeyRef2   { UnregisterEventHotKey(h) }
         reminderTimer?.invalidate()
         phpManager.stop()
     }
