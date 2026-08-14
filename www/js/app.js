@@ -872,7 +872,7 @@ function showTaskContextMenu(task, x, y) {
     setTimeout(() => document.addEventListener('click', close, true), 0);
 }
 
-// ── Detail window via NSPanel (⌘L) ───────────────────────
+// ── Detail window via NSPanel ─────────────────────────────
 
 function openDetailWindow(taskId) {
     const task   = taskId ? tasks.find(t => t.id === taskId) : null;
@@ -1042,7 +1042,7 @@ function openFullscreen_UNUSED(taskId) {
     document.querySelector('.app').appendChild(overlay);
 
     const keyHandler = e => {
-        if (e.key === 'Escape' || (e.metaKey && e.key === 'l')) {
+        if (e.key === 'Escape') {
             e.preventDefault();
             overlay.remove();
             document.removeEventListener('keydown', keyHandler);
@@ -1373,12 +1373,4 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     document.addEventListener('click', () => priMenu.classList.add('hidden'));
-
-    // Cmd+L → detail panel
-    document.addEventListener('keydown', e => {
-        if (e.metaKey && e.key === 'l') {
-            e.preventDefault();
-            openDetailWindow(selectedTaskId);
-        }
-    });
 });
